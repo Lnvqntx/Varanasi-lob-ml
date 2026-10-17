@@ -1,0 +1,8 @@
+venv/
+wnn/
+*.parquet
+*.onnx
+*.zip
+*.log
+__pycache__/
+checkpoints/
