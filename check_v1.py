@@ -28,6 +28,7 @@ from utils import (FEATURE_COLUMNS, SEQUENCE_LENGTH, TARGET_COLUMNS, DataPoint, 
 from solution import PredictionModel  # noqa: E402
 
 TEST_ROWS = 39_400_000
+CKPT = os.environ.get("CKPT", "/home/jovyan/work/checkpoints/train_v1_best.pt")
 
 
 def load_valid(n):
@@ -82,8 +83,8 @@ def torch_reference(seqs):
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     assert torch.cuda.device_count() == 0, "GPU visible"
     torch.set_num_threads(4)
-    ck = torch.load("/home/jovyan/work/checkpoints/train_v1_best.pt", map_location="cpu", weights_only=False)
-    model = train_v1.GRUModel()
+    ck = torch.load(CKPT, map_location="cpu", weights_only=False)
+    model = train_v1.GRUModel(hidden=ck["args"].get("hidden", 256))
     model.load_state_dict(ck["model"])
     model.eval()
     stats = {k: v.cpu() for k, v in ck["stats"].items()}
@@ -109,7 +110,7 @@ def main():
 
     seqs = load_valid(args.n)
     rows = args.n * SEQUENCE_LENGTH
-    print(f"submission dir {SUB_DIR}; {args.n} valid sequences, {rows:,} rows")
+    print(f"submission dir {SUB_DIR}; checkpoint {CKPT}; {args.n} valid sequences, {rows:,} rows")
 
     allowed = sorted(os.sched_getaffinity(0))
     core = allowed[-1]

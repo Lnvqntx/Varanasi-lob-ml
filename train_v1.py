@@ -175,9 +175,11 @@ def main():
     ap.add_argument("--n-stats", type=int, default=64)
     ap.add_argument("--eval-every", type=int, default=2000, help="optimizer steps between evaluations")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--hidden", type=int, default=256)
+    ap.add_argument("--name", default="train_v1", help="log and checkpoint name")
     args = ap.parse_args()
 
-    name = "train_v1_smoke" if args.smoke else "train_v1"
+    name = f"{args.name}_smoke" if args.smoke else args.name
     if args.smoke and args.max_steps is None:
         args.max_steps = 50
     os.makedirs(CKPT_DIR, exist_ok=True)
@@ -206,7 +208,7 @@ def main():
     stats = compute_stats(train, np.sort(train_idx[:args.n_stats]), device)
     log(f"input stats from {min(args.n_stats, len(train_idx))} seqs in {time.time() - t0:.1f}s")
 
-    model = GRUModel().to(device)
+    model = GRUModel(hidden=args.hidden).to(device)
     log(f"params: {sum(p.numel() for p in model.parameters()):,}")
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.wd)
     chunks_per_seq = SEQ_LEN // args.chunk
