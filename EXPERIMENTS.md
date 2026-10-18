@@ -23,10 +23,14 @@ All scores are weighted Pearson on valid `is_scored` rows. v1 and v2 picked thei
 | v2 | GRU hidden 128, 3 epochs | 0.6770 | | int8 build: 0.679703 on full valid (official scorer), **leaderboard 0.65200**, about 59 us/row here, platform run time 20m32s |
 | v3 | hidden 128, 8 epochs | 0.6783 (step 64,000) | 0.6704 | overfits after about epoch 5; held-out train sequences also fall |
 | v4 | hidden 128, 5 epochs | 0.6788 | 0.6778 | within noise of v2; not worth submitting alone |
+| v5 | hidden 128, 5 epochs, seed 1 (checkpoint train_v5_h128_e5_seed1_best.pt) | 0.6801 | 0.6791 | about +0.001 over v4 (seed 0): seed noise is about 0.001 |
+| v6 | hidden 128, 5 epochs, seed 2 | 0.6793 | 0.6788 | all rows >= 99: 0.5064; seeds 0/1/2 give best 0.6788 / 0.6801 / 0.6793, spread about 0.0013 |
+| ens (valid, fp32) | average raw outputs of v2+v4+v5 | 0.6831 masked | | v2+v5 0.6825 (+0.0024), v4+v5 0.6822, v2+v4 0.6818; all-rows gain about +0.004 to +0.006 (ensemble_check_results.txt) |
 
 ## Open questions / next runs
 
-- [ ] Seed noise: repeat the v4 setup with seed 1 and 2. If seeds differ by about 0.001, v2, v3 and v4 are indistinguishable.
+- [x] Seed noise: v4/v5/v6 (seeds 0/1/2) best 0.6788 / 0.6801 / 0.6793. Spread about 0.0013, so the recipe is at a ceiling near 0.680 and single-run differences below 0.002 mean nothing.
+- [ ] Two-model int8 ensemble in one ONNX graph (v2+v5): needs timing. Single model is 59 us/row here and 20m32s on the platform; two separate models would be about 41 min, three about 62 min (over the limit).
 - [x] Leaderboard calibration: baseline scored 0.59353 on the leaderboard (local 0.617052). Shift is shared, not specific to our model.
 - [x] Score spread (spread_v2.py, spread_v2_results.txt): SD of the score over random valid subsets is 0.0268 at 5% of sequences, 0.0189 at 10%, 0.0113 at 25%, 0.0062 at 50% (about 0.27/sqrt(k) for k sequences). Per-sequence median 0.689, 10th percentile 0.341, 90th percentile 0.852. Top 10% of sequences hold 27.5% of the weight.
 - [x] Mask robustness (mask_check.py, mask_check_results.txt): on is_scored rows v2 = 0.6797, v4 = 0.6788. On all rows with step >= 99 v2 = 0.5097, v4 = 0.5096. On unscored rows 0.4784 for both. The valid mask (about 9.5% of rows, even across steps) picks easier moments (mean |target| 0.69 inside vs 0.60 outside). Not tuning to the mask: v2 and v4 agree within 0.001 on all rows. The leaderboard drop (0.028, baseline 0.0235) is small next to this 0.20 gap, so the hidden test mask is probably similar but slightly harder. Weakest step range is 5000-9999 (all rows 0.501).
