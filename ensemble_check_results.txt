@@ -1,0 +1,22 @@
+Ensemble check on valid (1,873 sequences, steps >= 99), fp32 PyTorch, GPU 0
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+  v2: /home/jovyan/work/checkpoints/train_v2_best.pt
+  v4: /home/jovyan/work/checkpoints/train_v4_h128_e5_fullval_best.pt
+  v5: /home/jovyan/work/checkpoints/train_v5_h128_e5_seed1_best.pt
+  v2 picked its checkpoint on 300 valid sequences; v4, v5 on all 1,873 (masked rows), so their masked
+  scores are slightly optimistic. v6 not included (no checkpoint, no finished run).
+
+Single-model sanity vs earlier results (tolerance 0.0005):
+  v2: 0.679728 vs 0.679703 (+0.000024)
+  v4: 0.678787 vs 0.678787 (+0.000000)
+  v5: 0.680102 vs 0.680102 (-0.000000)
+
+Sorted by masked mean; gain = masked mean - best single member's masked mean
+  subset      n  masked t0  masked t1   masked  all rows     gain  gain all
+  v2+v4+v5    3     0.6788     0.6873   0.6831    0.5159  +0.0029   +0.0062
+  v2+v5       2     0.6781     0.6869   0.6825    0.5144  +0.0024   +0.0047
+  v4+v5       2     0.6778     0.6866   0.6822    0.5146  +0.0021   +0.0050
+  v2+v4       2     0.6776     0.6860   0.6818    0.5140  +0.0021   +0.0043
+  v5          1     0.6754     0.6848   0.6801    0.5096        -         -
+  v2          1     0.6753     0.6841   0.6797    0.5097        -         -
+  v4          1     0.6745     0.6830   0.6788    0.5096        -         -
