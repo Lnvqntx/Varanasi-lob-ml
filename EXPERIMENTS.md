@@ -4,7 +4,7 @@ One row per run. Add yours before you launch. Never reuse a `--name`.
 
 ## Team rules (shared `user_9` login, shared GPUs)
 
-- One GPU each, and check `nvidia-smi` first. Suggested: GPU 0 = Lnv, GPU 1 = GGMU, GPU 2 = Tejuus, GPU 3 spare.
+- One GPU each, and check `nvidia-smi` first. Suggested: GPU 0 = Lnv, GPU 1 = Mukesh, GPU 2 = Tejuus, GPU 3 spare.
 - Always launch in the background so closing a tab cannot kill the run:
   `CUDA_VISIBLE_DEVICES=1 nohup python train_v1.py --hidden 128 --epochs 5 --n-val 1873 --n-holdout 300 --eval-every 12800 --seed 0 --name train_vN > ~/work/train_vN.nohup.out 2>&1 &`
 - Do not type in a terminal tab where someone else's job is printing. Ctrl+C kills it.
