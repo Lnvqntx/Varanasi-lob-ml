@@ -18,7 +18,7 @@ All scores are weighted Pearson on valid `is_scored` rows. v1 and v2 picked thei
 
 | Run | Setup | Best valid | Final valid | Notes |
 |---|---|---|---|---|
-| baseline | starter GRU | 0.617052 (full valid) | | leaderboard score not measured yet |
+| baseline | starter GRU | 0.617052 (full valid) | | **leaderboard 0.59353** (drop 0.0235). Our v2 dropped 0.0275, so the test set is harder for everyone; lead over baseline is 0.0585 on the leaderboard vs 0.0627 locally |
 | v1 | GRU hidden 256, 3 epochs | 0.6745 | 0.6740 | too slow on CPU: about 203 us/row here (about 133 min projected) |
 | v2 | GRU hidden 128, 3 epochs | 0.6770 | | int8 build: 0.679703 on full valid (official scorer), **leaderboard 0.65200**, about 59 us/row here, platform run time 20m32s |
 | v3 | hidden 128, 8 epochs | 0.6783 (step 64,000) | 0.6704 | overfits after about epoch 5; held-out train sequences also fall |
@@ -27,6 +27,7 @@ All scores are weighted Pearson on valid `is_scored` rows. v1 and v2 picked thei
 ## Open questions / next runs
 
 - [ ] Seed noise: repeat the v4 setup with seed 1 and 2. If seeds differ by about 0.001, v2, v3 and v4 are indistinguishable.
-- [ ] Leaderboard calibration: submit the starter `baseline_submission.zip` once, to see how far its leaderboard score sits from 0.617.
-- [ ] Score spread: bootstrap random subsets of valid sequences with the v2 model to see how much a partial test sample can move the score.
+- [x] Leaderboard calibration: baseline scored 0.59353 on the leaderboard (local 0.617052). Shift is shared, not specific to our model.
+- [x] Score spread (spread_v2.py, spread_v2_results.txt): SD of the score over random valid subsets is 0.0268 at 5% of sequences, 0.0189 at 10%, 0.0113 at 25%, 0.0062 at 50% (about 0.27/sqrt(k) for k sequences). Per-sequence median 0.689, 10th percentile 0.341, 90th percentile 0.852. Top 10% of sequences hold 27.5% of the weight.
+- [ ] Mask robustness: the FAQ says the test mask is hidden and may differ from the valid mask. Also score on all steps >= 99 (ignoring is_scored) and pick checkpoints on that too.
 - [ ] Final-model options: train on train + valid with a fixed epoch count, checkpoint averaging, two-model ensemble (platform ran our int8 build in 20.5 of 60 minutes).
