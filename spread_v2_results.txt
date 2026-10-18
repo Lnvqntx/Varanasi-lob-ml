@@ -1,0 +1,47 @@
+Score-spread analysis, /home/jovyan/work/checkpoints/train_v2_best.pt (fp32 PyTorch), stats /home/jovyan/work/spread_v2_stats.npz
+1873 valid sequences, 3,528,273 scored rows (is_scored & step >= 99)
+
+== 1. Merged all-sequence score vs official full-valid run (int8 ONNX, ScorerStepByStep) ==
+  t0: merged fp32 0.675329 | official int8 0.675291 | diff +0.000038
+  t1: merged fp32 0.684126 | official int8 0.684116 | diff +0.000010
+  wp: merged fp32 0.679728 | official int8 0.679703 | diff +0.000024
+  |diff wp| 0.000024 -> within the expected 0.001
+
+== 2. Subset spread ==
+  1000 random subsets of 1873 sequences (without replacement, seed 0); full-set wp 0.6797
+   frac  seqs     mean      std       p5      p95   p95-p5   std t0   std t1
+     5%    94   0.6788   0.0268   0.6363   0.7223   0.0860   0.0300   0.0311
+    10%   187   0.6792   0.0189   0.6475   0.7086   0.0611   0.0212   0.0221
+    25%   468   0.6801   0.0113   0.6616   0.6982   0.0366   0.0126   0.0130
+    50%   936   0.6798   0.0062   0.6694   0.6899   0.0205   0.0067   0.0075
+
+== 3a. Per-sequence weighted Pearson ==
+  sequences with a target of zero total weight (score set to 0 for it): 0
+           mean   median      p10      p90  share<0
+    t0   0.6336   0.6946   0.3300   0.8598    0.75%
+    t1   0.6360   0.6951   0.3270   0.8577    0.85%
+    wp   0.6348   0.6886   0.3409   0.8522    0.43%
+  weight-weighted mean of per-seq wp 0.5885 (vs global 0.6797: the global score also rewards getting between-sequence levels right)
+
+== 3b. Weight concentration (weight = sum |clipped y| over scored rows) ==
+             top 1%   top 5%  top 10%
+        t0    4.91%   16.64%   27.12%
+        t1    5.01%   17.52%   28.09%
+     t0+t1    4.89%   16.96%   27.46%
+  (uniform weights would give 1%, 5%, 10%; scored rows per sequence: min 96, median 1,559, max 11,974)
+
+== 3c. Subset SD vs 1/sqrt(k), and sizes at which a drop of 0.028 is a 1/2/3-SD event ==
+  plain fit      SD = 0.2539 / sqrt(k)
+  with FPC fit   SD = 0.2698 * sqrt(1/k - 1/1873)   (c = SD of a single-sequence-sized sample from the population; use for an independent set such as the test set)
+      k  observed plain fit   FPC fit
+     94    0.0268    0.0262    0.0271
+    187    0.0189    0.0186    0.0187
+    468    0.0113    0.0117    0.0108
+    936    0.0062    0.0083    0.0062
+  sequences k needed so that 0.028 = z SD:
+    z   plain k   indep k  indep k, valid noise too
+    1        82        93                        98
+    2       329       371                       463
+    3       740       836                     1,509
+  plain k: from the plain fit. indep k: an independent sample of k sequences (FPC fit, infinite population).
+  last column: the full-valid score itself also has noise (SD 0.0062 for 1873 seqs) when compared with an independent set.
