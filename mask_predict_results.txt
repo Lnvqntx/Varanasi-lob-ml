@@ -1,0 +1,78 @@
+Valid is_scored mask diagnostic (CPU only); valid cache in /home/jovyan/work/cache, read-only
+standardization stats from /home/jovyan/work/checkpoints/train_v2_best.pt; inputs follow train_v1.build_inputs
+
+== 2a. Scored fraction per sequence (steps >= 99) ==
+  overall 9.4656% (3,528,273 of 37,274,573);  min 0.4824%  q1 4.6179%  median 7.8338%  q3 12.2808%  max 60.1678%;  sequences with no scored row: 0
+  SD of per-sequence fraction 7.0494% vs 0.2075% expected if every sequence had the same rate
+
+== 2b. Scored share per step bin ==
+     99-999   9.6121%  (162,211 of 1,687,573)
+   1000-4999  9.3434%  (700,009 of 7,492,000)
+   5000-9999  9.3593%  (876,499 of 9,365,000)
+  10000-14999 9.4818%  (887,974 of 9,365,000)
+  15000-19999 9.6271%  (901,580 of 9,365,000)
+
+== 2c. Run lengths (per sequence, steps >= 99) vs independent Bernoulli with each sequence's own rate ==
+  scored runs    actual    n   898,542  mean    3.93  median     2  p90     8  max  1,632
+                 Bernoulli n 3,008,386  mean    1.17  median     1  p90     2  max     22
+  gaps           actual    n   896,669  mean   36.74  median     5  p90    81  max  7,880
+                 Bernoulli n 3,006,513  mean   11.20  median     6  p90    25  max  1,223
+  share of scored rows in runs of length >=  1: actual 1.0000  Bernoulli 1.0000
+  share of scored rows in runs of length >=  2: actual 0.8882  Bernoulli 0.2643
+  share of scored rows in runs of length >=  5: actual 0.6463  Bernoulli 0.0097
+  share of scored rows in runs of length >= 10: actual 0.4429  Bernoulli 0.0004
+  share of scored rows in runs of length >= 50: actual 0.0912  Bernoulli 0.0000
+  scored-run length histogram (actual; 30 = 30+): 1:394,465, 2:158,821, 3:102,454, 4:57,105, 5:38,628, 6:26,117, 7:19,551, 8:15,268, 9:12,090, 10:9,667, 11:8,060, 12:6,657, 13:5,673, 14:4,847, 15:4,084, 16:3,547, 17:3,092, 18:2,653, 19:2,340, 20:2,052, 21:1,821, 22:1,663, 23:1,505, 24:1,304, 25:1,144, 26:1,099, 27:990, 28:839, 29:758, 30:10,248
+
+== 2d. Mask autocorrelation (pooled within sequences) and periodicity ==
+  lag    1: +0.7187
+  lag   10: +0.3733
+  lag  100: +0.1465
+  lag 1000: +0.0786
+  step mod   10: share min 9.4561% max 9.4774%  max |z| 0.8 (binomial; ~3.1 expected by chance at most)
+  step mod   50: share min 9.4076% max 9.5337%  max |z| 2.0 (binomial; ~3.8 expected by chance at most)
+  step mod  100: share min 9.3221% max 9.5408%  max |z| 3.0 (binomial; ~4.0 expected by chance at most)
+  step mod 1000: share min 8.9936% max 10.0160%  max |z| 3.6 (binomial; ~4.7 expected by chance at most)
+
+== 2e. Mask vs |target| (future information: an upper bound on what is knowable) ==
+  |t0| clipped: AUC for is_scored 0.5371;  inside mask min 0.0000 median 0.6569;  outside min 0.0000 median 0.4827;  exact zeros inside 22.15% outside 21.74%
+  |t1| clipped: AUC for is_scored 0.5438;  inside mask min 0.0000 median 0.6569;  outside min 0.0000 median 0.4827;  exact zeros inside 21.05% outside 21.63%
+  |t0|+|t1| clipped: AUC 0.5548
+  scored share by |t0|+|t1| bin (quantile edges, ties kept together):
+    [0.125, 0.469):  8.8634% of  2,833,866 rows ( 7.60% of all)
+    [0.469, 0.483):  3.2361% of  3,859,334 rows (10.35% of all)
+    [0.483, 0.657):  6.9967% of  2,913,071 rows ( 7.82% of all)
+    [0.657, 1.003): 10.9013% of 12,701,791 rows (34.08% of all)
+    [1.003, 1.380):  5.7585% of  3,636,552 rows ( 9.76% of all)
+    [1.380, 2.007):  8.9139% of  3,871,823 rows (10.39% of all)
+    [2.007, 2.627): 10.3587% of  2,406,694 rows ( 6.46% of all)
+    [2.627, 4.000]: 15.0430% of  5,051,442 rows (13.55% of all)
+
+== 3. Predicting is_scored from causal features ==
+  sample: 600 valid sequences (seed 0), steps 99..19999 every 10th -> 1,194,600 rows, scored rate 9.6066%
+  split by sequence: 350 fit + 50 early stopping = 400 train, 200 test (398,200 rows, 38,183 scored)
+  model: LightGBM binary, lr 0.05, 63 leaves, early stopping on the 50 held-out train sequences
+  top-decile capture = share of all scored test rows in the top 10% of predicted probability (random: 0.10)
+  feature set                            AUC      AP  top10%  trees
+  all 173 features                    0.8874  0.5303  0.5226    997
+  step index only                     0.4923  0.0936  0.0923     12
+  rolling activity only (4)           0.7040  0.1799  0.2193    329
+  all 173, shuffled train labels      0.4828  0.0933  0.1026      1
+  (AP of a random ranking = scored rate in test = 0.0959)
+  top 15 features by gain (all-features model; d_ = first difference, act_ = rolling activity):
+    a3               17.54%
+    a5               4.23%
+    i0_dp0           3.86%
+    i0_v21           2.57%
+    a2               2.40%
+    act_other_20     2.35%
+    i0_v4            1.92%
+    i0_v0            1.91%
+    a6               1.81%
+    a7               1.73%
+    i0_p13           1.66%
+    i0_dv1           1.60%
+    i0_v15           1.58%
+    i0_p1            1.54%
+    a0               1.54%
+  gain share by feature group: a0-a7 30.7%, prices 16.6%, price diffs 3.2%, volumes / other book cols 43.4%, fill flags 0.0%, rolling activity 5.3%, step 0.7%
