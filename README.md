@@ -4,7 +4,7 @@ Team **Varanasi**: Alfa Connectome ML Competition (Wunder Fund), limit order boo
 
 > This repo is private on purpose. The competition rules forbid sharing code, models or detailed strategy before the competition ends. Model weights, caches and submission zips are never committed (see `.gitignore`).
 
-**Team:** Lnvqntx, Mukesh, Tejuus UoH.
+**Team:** Lnvqntx, Mukesh, Tejas UoH.
 
 ---
 
@@ -54,7 +54,7 @@ Rules we agreed with the machine owner and follow:
 - One CPU core (core 31) is used for timing benchmarks via `taskset`, with GPUs hidden (`CUDA_VISIBLE_DEVICES=`), to mimic the competition.
 
 Rules we agreed inside the team (from Oct 18, details in `EXPERIMENTS.md`):
-- One GPU each: GPU 0 = Lnvqntx, GPU 1 = Mukesh, GPU 2 = Tejuus, GPU 3 spare. Check `nvidia-smi` first.
+- One GPU each: GPU 0 = Lnvqntx, GPU 1 = Mukesh, GPU 2 = Tejas, GPU 3 spare. Check `nvidia-smi` first.
 - Every training run is launched with `nohup`, a unique `--name`, and a log file, and is added to the runs table in `EXPERIMENTS.md`.
 - Nobody types in a terminal tab where someone else's job is printing.
 - The group is told before a leaderboard submission is used (5 per day for the whole team).
@@ -277,7 +277,7 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 5. Keep submissions few and meaningful (3 used so far including the baseline); tell the team before each one.
 6. Check the competition's timeline and prizes pages for how the final ranking works and how deep the prize list goes.
 7. Keep training code seeded and reproducible (required for prize verification) and prepare the 2-8 page technical report.
-8. Confirm the team is registered on the competition site (deadline Nov 1) and add Mukesh and Tejuus as repo collaborators.
+8. Confirm the team is registered on the competition site (deadline Nov 1) and add Mukesh and Tejas as repo collaborators.
 
 ---
 
