@@ -4,7 +4,7 @@ One row per run. Add yours before you launch. Never reuse a `--name`.
 
 ## Team rules (shared `user_9` login, shared GPUs)
 
-- One GPU each, and check `nvidia-smi` first. Suggested: GPU 0 = Lnv, GPU 1 = Mukesh, GPU 2 = Tejuus, GPU 3 spare.
+- One GPU each, and check `nvidia-smi` first. Suggested: GPU 0 = Lnv, GPU 1 = Mukesh, GPU 2 = Tejas, GPU 3 spare. Before Oct 19 the training scripts forced GPU 0 whatever you set, so `CUDA_VISIBLE_DEVICES` did nothing and two runs shared one GPU (about 3 steps/s each instead of about 19). Fixed in train_v1.py and train_v2m.py with `os.environ.setdefault`. After launching, check in `nvidia-smi` that the memory on YOUR GPU went up.
 - Always launch in the background so closing a tab cannot kill the run:
   `CUDA_VISIBLE_DEVICES=1 nohup python train_v1.py --hidden 128 --epochs 5 --n-val 1873 --n-holdout 300 --eval-every 12800 --seed 0 --name train_vN > ~/work/train_vN.nohup.out 2>&1 &`
 - Do not type in a terminal tab where someone else's job is printing. Ctrl+C kills it.
@@ -27,6 +27,10 @@ All scores are weighted Pearson on valid `is_scored` rows. v1 and v2 picked thei
 | v6 | hidden 128, 5 epochs, seed 2 | 0.6793 | 0.6788 | all rows >= 99: 0.5064; seeds 0/1/2 give best 0.6788 / 0.6801 / 0.6793, spread about 0.0013 |
 | ens v4+v5 (int8) | two-model int8 ensemble, one ONNX graph | 0.6822 masked (fp32, valid) | | **leaderboard 0.65315** (v2 alone 0.65200, +0.00115 vs +0.0025 on valid); rank 543 -> 486; projected 39.7 min on the platform |
 | ens (valid, fp32) | average raw outputs of v2+v4+v5 | 0.6831 masked | | v2+v5 0.6825 (+0.0024), v4+v5 0.6822, v2+v4 0.6818; all-rows gain about +0.004 to +0.006 (ensemble_check_results.txt) |
+| mask GRU | mask_gru.py, 1-layer GRU hidden 64, predicts the valid `is_scored` mask from causal features | | | held-out 469 valid sequences: AUC 0.941, within-sequence AUC 0.936, top decile holds 65.7% of scored rows, mean p 9.35% vs true rate 9.19%. Used to make train_maskp.npy / valid_maskp.npy (train rows have no mask, so p is predicted) |
+| v7 | train_v2m.py, loss weight x (0.5 + 0.5 * p / mean p), hidden 128, 5 epochs, seed 0 (checkpoint train_v7_maskw_a05_h128_e5_fullval_best.pt) | 0.6824 | 0.6824 | **+0.0036 vs v4** (same seed), final +0.0046. Held-out 469 sequences (never seen by the mask GRU) 0.6892 vs 0.6845 (+0.0047). All rows >= 99: 0.5098 vs 0.5096 (unchanged). Best of any single model so far (seeds 0/1/2 of the plain recipe: 0.6788 / 0.6801 / 0.6793). 3h42m wall because it shared GPU 0 for part of the run |
+| v8b | alpha 0.0 (weight proportional to p), first attempt | | | stopped at step 15,100 of 64,500. Launched with `CUDA_VISIBLE_DEVICES=1` but the script forced GPU 0, so it and v7 shared one GPU. Restarted as v8c |
+| v8c | alpha 0.0 (weight proportional to p, no floor), seed 0, GPU 1 | 0.6811 | 0.6806 | +0.0023 vs v4 on masked rows, but all rows >= 99 falls to 0.5007 (v4 0.5096, -0.0089): ignoring the rows the mask rarely picks costs accuracy there. Train holdout 0.4360. Pure train compute 605 s for 64,500 steps. alpha 0.5 is better on both measures |
 
 ## Open questions / next runs
 
@@ -39,3 +43,7 @@ All scores are weighted Pearson on valid `is_scored` rows. v1 and v2 picked thei
 - [x] Score spread (spread_v2.py, spread_v2_results.txt): SD of the score over random valid subsets is 0.0268 at 5% of sequences, 0.0189 at 10%, 0.0113 at 25%, 0.0062 at 50% (about 0.27/sqrt(k) for k sequences). Per-sequence median 0.689, 10th percentile 0.341, 90th percentile 0.852. Top 10% of sequences hold 27.5% of the weight.
 - [x] Mask robustness (mask_check.py, mask_check_results.txt): on is_scored rows v2 = 0.6797, v4 = 0.6788. On all rows with step >= 99 v2 = 0.5097, v4 = 0.5096. On unscored rows 0.4784 for both. The valid mask (about 9.5% of rows, even across steps) picks easier moments (mean |target| 0.69 inside vs 0.60 outside). Not tuning to the mask: v2 and v4 agree within 0.001 on all rows. The leaderboard drop (0.028, baseline 0.0235) is small next to this 0.20 gap, so the hidden test mask is probably similar but slightly harder. Weakest step range is 5000-9999 (all rows 0.501).
 - [ ] Final-model options: train on train + valid with a fixed epoch count, checkpoint averaging, two-model ensemble (platform ran our int8 build in 20.5 of 60 minutes).
+- [x] Mask-weighted loss (Oct 19): alpha 0.5 gives v7 0.6824 vs v4 0.6788 (+0.0036, nearly 3x the seed noise of 0.0013; +0.0047 on the 469 held-out sequences, so it is not leakage from fitting the mask GRU on valid). All rows >= 99 unchanged. alpha 0.0 gives v8c 0.6811 (+0.0023) and loses 0.0089 on all rows. Verdict: promising, alpha 0.5 is the better setting. One seed each so far.
+- [ ] Replicate: v9 = alpha 0.5 seed 1 on GPU 0, v10 = alpha 0.5 seed 2 on GPU 1. If both land near 0.682 the effect is real. They are also the members of the next ensemble (pairs among v7/v9/v10).
+- [ ] Submit v7 alone (int8) and compare with v2 alone (0.65200, valid 0.6797). Valid gain is about +0.003, so about 0.655 if mask weighting carries to the test set. The ensemble gain halved on the leaderboard (+0.0025 valid, +0.00115 leaderboard), so a smaller transfer is possible.
+- [ ] Later idea: mask weighting plus training on train + valid, using the true `is_scored` for the valid rows and a fixed 5 epochs.

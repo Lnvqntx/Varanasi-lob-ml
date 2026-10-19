@@ -1,0 +1,8 @@
+Main-model weighted Pearson on valid, by mask-predictor split (held out = index % 4 == 0, 469 seqs; fitting = 1404 seqs; all = 1873)
+  checkpoint                                   split       masked       t0       t1  all>=99
+  train_v7_maskw_a05_h128_e5_fullval_best.pt   held out    0.6892   0.6770   0.7014   0.5229
+  train_v7_maskw_a05_h128_e5_fullval_best.pt   fitting     0.6802   0.6781   0.6823   0.5054
+  train_v7_maskw_a05_h128_e5_fullval_best.pt   all         0.6824   0.6779   0.6869   0.5098
+  train_v4_h128_e5_fullval_best.pt             held out    0.6845   0.6720   0.6971   0.5231
+  train_v4_h128_e5_fullval_best.pt             fitting     0.6769   0.6752   0.6786   0.5051
+  train_v4_h128_e5_fullval_best.pt             all         0.6788   0.6745   0.6830   0.5096
