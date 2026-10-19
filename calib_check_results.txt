@@ -1,0 +1,26 @@
+valid_maskp.npy check (steps >= 99, all 1,873 sequences):
+  dtype float16, min 0.00000, max 1.00000, mean 0.09471; true is_scored rate 0.09466
+  mean p on scored rows 0.5141, on unscored rows 0.0509
+  -> values lie in [0, 1] and their mean matches the scored rate: sigmoid probabilities from mask_gru.py,
+     not training weights (a weight m = a + (1-a) p/mean_p would have mean about 1 and exceed 1).
+
+mean_p over the 469 held-out sequences, steps >= 99: 0.09347
+sanity, unscaled float16 v7+v9: all 1,873 masked 0.6850 (fp32 ensemble_check4 0.6850), held out 0.6915 (fp32 0.6915)
+
+Held-out 469 sequences; gain vs unscaled
+  scaling                  scored t0 scored t1   scored     gain  all>=99     gain
+  none (gamma 0)              0.6799    0.7032   0.6915  +0.0000   0.5278  +0.0000
+  (p/mean_p)^0.1              0.6766    0.7010   0.6888  -0.0027   0.5078  -0.0200
+  (p/mean_p)^0.25             0.6671    0.6928   0.6800  -0.0116   0.4578  -0.0700
+  (p/mean_p)^0.5              0.6506    0.6795   0.6651  -0.0265   0.4031  -0.1247
+  (p/mean_p)^1                0.6228    0.6608   0.6418  -0.0497   0.3555  -0.1723
+  0.25 + 0.75 * p/mean_p      0.6308    0.6670   0.6489  -0.0426   0.4028  -0.1250
+  0.5 + 0.5 * p/mean_p        0.6408    0.6740   0.6574  -0.0341   0.4462  -0.0816
+  0.75 + 0.25 * p/mean_p      0.6543    0.6832   0.6687  -0.0228   0.4858  -0.0420
+
+Robustness: pick the best scored-row setting on one half, report it on the other
+  pick on  setting                  gain there | report on   scored     gain  all>=99     gain
+  even     none (gamma 0)              +0.0000 | odd         0.6830  +0.0000   0.5255  +0.0000
+  odd      none (gamma 0)              +0.0000 | even        0.6996  +0.0000   0.5297  +0.0000
+
+Verdict (promising only if the out-of-half gain is >= 0.002 in both directions): NO GAIN
