@@ -33,6 +33,15 @@ checkpoint {name}_final.pt. Evaluation reads each valid / holdout batch once and
 The combined log ~/work/{run}.log (--run, default "multi_" + first name) carries every line prefixed
 with [name], and an [all] line with the wall rate and each model's own compute rate.
 
+--unit-filter U (e.g. 0.6569) trains specialists for one target unit (labels from unit_labels.py, i.e.
+unit_probe.py's labelling, including the 48 train sequences labelled from their full target sequence): after the
+usual holdout split and valid subset draw (same RNG use), the training, holdout and valid sequences are cut to
+those of unit U. The optimizer steps and the cosine schedule follow the filtered training set (--epochs are epochs
+of it), the input stats come from its first --n-stats sequences, and the mask weights keep the unfiltered mean_p
+(so every row gets the same weight as in a generalist run). Every training batch is checked to be of unit U (all
+nonzero |targets| integer multiples of U), and the trained sequences are counted per unit. Evaluation reports
+the in-group scores (global weighted Pearson over the unit's valid sequences, is_scored and all rows >= 99).
+
 Usage (one process, one GPU):
   CUDA_VISIBLE_DEVICES=0 nohup python train_multi.py --models "..." --hidden 128 --epochs 5 --n-val 1873 \\
       --n-holdout 300 --eval-every 12800 --mask-p ~/work/cache/train_maskp.npy --alpha 0.5 > ~/work/x.out 2>&1 &
@@ -166,6 +175,8 @@ def main():
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--mask-p", default=None, help="float16 train p(scored) cache from mask_gru.py infer")
     ap.add_argument("--alpha", type=float, default=1.0, help="m = alpha + (1 - alpha) * min(p / mean_p, 20)")
+    ap.add_argument("--unit-filter", type=float, default=None,
+                    help="train / evaluate only on the sequences of this target unit (e.g. 0.6569)")
     args = ap.parse_args()
 
     specs = parse_models(args.models)
@@ -222,9 +233,26 @@ def main():
     perm = rng.permutation(train["prices"].shape[0])
     holdout_idx = np.sort(perm[:args.n_holdout])
     train_idx = perm[args.n_holdout:]
+    val_idx = np.sort(rng.choice(valid["prices"].shape[0], args.n_val, replace=False))
+    pre_idx = train_idx  # unfiltered training sequences (mean_p of the mask weights)
+    unit_k = unit_value = unit_tr = None
+    if args.unit_filter is not None:
+        from unit_labels import unit_index, unit_labels
+        from unit_probe import UNITS
+        unit_k = unit_index(args.unit_filter)
+        unit_value = UNITS[unit_k]
+        unit_tr, unit_va = unit_labels("train"), unit_labels("valid")
+        assert len(unit_tr) == train["prices"].shape[0] and len(unit_va) == valid["prices"].shape[0]
+        log(f"unit filter {args.unit_filter} -> unit {unit_value}: train seqs {len(train_idx)} -> "
+            f"{np.sum(unit_tr[train_idx] == unit_k)} (per unit " + ", ".join(
+                f"{u} {np.sum(unit_tr[train_idx] == k)}" for k, u in enumerate(UNITS)) + f"), holdout {len(holdout_idx)} -> "
+            f"{np.sum(unit_tr[holdout_idx] == unit_k)}, valid {len(val_idx)} -> {np.sum(unit_va[val_idx] == unit_k)}")
+        train_idx = train_idx[unit_tr[train_idx] == unit_k]
+        holdout_idx = holdout_idx[unit_tr[holdout_idx] == unit_k]
+        val_idx = val_idx[unit_va[val_idx] == unit_k]
     if args.smoke:
         train_idx = train_idx[:20]
-    val_idx = np.sort(rng.choice(valid["prices"].shape[0], args.n_val, replace=False))
+        pre_idx = pre_idx[:20]
     log(f"train seqs {len(train_idx)}, train holdout {len(holdout_idx)}, valid subset {len(val_idx)}")
 
     train_fit = train
@@ -233,12 +261,15 @@ def main():
         mp = np.load(os.path.expanduser(args.mask_p), mmap_mode="r")
         assert mp.shape == train["prices"].shape[:2], f"mask-p shape {mp.shape} != train {train['prices'].shape[:2]}"
         train_fit = dict(train, maskp=mp)
-        srt = np.sort(train_idx)
+        srt = np.sort(pre_idx)
         tot = sum(np.asarray(mp[srt[i:i + 500], WARMUP:]).sum(dtype=np.float64) for i in range(0, len(srt), 500))
         mean_p = tot / (len(srt) * (SEQ_LEN - WARMUP))
         log(f"mask weights from {args.mask_p}: alpha {args.alpha}, mean_p {mean_p:.6f} over {len(srt)} train seqs "
-            f"(steps >= {WARMUP}); m = alpha + (1 - alpha) * min(p / mean_p, 20)")
+            f"(steps >= {WARMUP}); m = alpha + (1 - alpha) * min(p / mean_p, 20)"
+            + ("" if unit_k is None else " (unfiltered training set, as a generalist run)"))
 
+    grp = "" if unit_k is None else f" | in-group: unit {unit_value} only ({len(val_idx)} valid seqs)"
+    seen = np.zeros(4, np.int64)  # trained sequences per unit (with --unit-filter)
     t0 = time.time()
     stats = compute_stats(train, np.sort(train_idx[:args.n_stats]), device)
     log(f"input stats from {min(args.n_stats, len(train_idx))} seqs in {time.time() - t0:.1f}s")
@@ -310,7 +341,7 @@ def main():
                      f"t1 {rv['t1']:.4f}, rows {rv['selected_rows']:,}) | valid all>=99 wp={rva['weighted_pearson']:.4f} "
                      f"(t0 {rva['t0']:.4f}, t1 {rva['t1']:.4f}) | train-holdout wp={rh['weighted_pearson']:.4f} "
                      f"(t0 {rh['t0']:.4f}, t1 {rh['t1']:.4f}) | valid eval {tv:.1f}s, holdout eval {th:.1f}s "
-                     f"(all {len(specs)} models)")
+                     f"(all {len(specs)} models){grp}")
             if rv["weighted_pearson"] > sp["best"]:
                 sp["best"] = rv["weighted_pearson"]
                 save(sp, f"{CKPT_DIR}/{sp['run_name']}_best.pt", rv, rva, rh)
@@ -326,12 +357,19 @@ def main():
         order = rng.permutation(train_idx)
         batches = [order[i:i + args.batch] for i in range(0, len(order), args.batch)]
         loader = iter(Prefetcher(train_fit, batches))
+        bi = -1
         while True:
             tw = time.time()
             b = next(loader, None)
             t_wait += time.time() - tw
             if b is None:
                 break
+            bi += 1
+            if unit_k is not None:
+                assert (unit_tr[batches[bi]] == unit_k).all(), f"batch {bi}: sequence of another unit"
+                a = np.abs(b["targets"][b["targets"] != 0]).astype(np.float64) / unit_value
+                assert a.size == 0 or a.min() > 0.5 and np.abs(a - np.round(a)).max() < 1e-3, f"batch {bi}: targets not of unit {unit_value}"
+                seen += np.bincount(unit_tr[batches[bi]], minlength=4)
             x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
             y = torch.from_numpy(b["targets"]).to(device)
             m_all = {}  # per alpha: (B,T,1) mask weights, or None without --mask-p
@@ -407,6 +445,9 @@ def main():
         epoch += 1
 
     do_eval(final=True)
+    if unit_k is not None:
+        log(f"trained sequence-passes per unit {UNITS}: {seen.tolist()} (each batch checked: targets are multiples "
+            f"of {unit_value})")
     for sp in specs:
         mlog(sp, f"done. best valid wp {sp['best']:.4f}; own train compute {sp['t_model']:.1f}s for {step} steps "
                  f"({step / max(sp['t_model'], 1e-9):.2f} steps/s)")

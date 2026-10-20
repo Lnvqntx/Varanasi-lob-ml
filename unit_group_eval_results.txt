@@ -1,0 +1,43 @@
+Generalists on the coarse-unit valid sequences (unit 0.656868), fp32 PyTorch, GPU 0, steps >= 99
+Global weighted Pearson (weights |clipped target|) over the group's rows only; pair = average of raw outputs.
+  v18c  /home/jovyan/work/checkpoints/train_v18c_wd05_nodrop_final.pt (step 64500; data seed 0, init seed 0, wd 0.05, ema 0)
+  v19a  /home/jovyan/work/checkpoints/train_v19a_wd10_ds1_final.pt (step 64500; data seed 1, init seed 1, wd 0.1, ema 0)
+  v20a  /home/jovyan/work/checkpoints/train_v20a_wd05_ema_final.pt (step 64500; data seed 0, init seed 0, wd 0.05, ema 0.9995)
+  units (unit_labels.py): 0.125433 398, 0.24133 347, 0.468536 431, 0.656868 697; coarse group 697 sequences, 173 of them in the 469 held out
+
+Sanity (tolerance 1e-05): all 18 checks pass
+  v18c full masked vs checkpoint: 0.6857267 vs 0.6857267 (-2.2e-16)
+  v18c full all rows vs checkpoint: 0.5138374 vs 0.5138374 (-8.4e-15)
+  v19a full masked vs checkpoint: 0.6855678 vs 0.6855678 (-3.3e-15)
+  v19a full all rows vs checkpoint: 0.5144045 vs 0.5144045 (-9.3e-15)
+  v20a full masked vs checkpoint: 0.6857431 vs 0.6857431 (-3.6e-15)
+  v20a full all rows vs checkpoint: 0.5138716 vs 0.5138716 (-7.7e-15)
+  v18c full masked vs ensemble_check9: 0.6857267 vs 0.6857267 (+0.0e+00)
+  v18c full all vs ensemble_check9: 0.5138374 vs 0.5138374 (+0.0e+00)
+  v18c held masked vs ensemble_check9: 0.6927756 vs 0.6927756 (+0.0e+00)
+  v18c held all vs ensemble_check9: 0.5249990 vs 0.5249990 (+0.0e+00)
+  v19a full masked vs ensemble_check9: 0.6855678 vs 0.6855678 (+0.0e+00)
+  v19a full all vs ensemble_check9: 0.5144045 vs 0.5144045 (+0.0e+00)
+  v19a held masked vs ensemble_check9: 0.6925643 vs 0.6925643 (+0.0e+00)
+  v19a held all vs ensemble_check9: 0.5278490 vs 0.5278490 (+0.0e+00)
+  v18c+v19a full masked vs ensemble_check9: 0.6867397 vs 0.6867397 (+0.0e+00)
+  v18c+v19a full all vs ensemble_check9: 0.5164550 vs 0.5164550 (+0.0e+00)
+  v18c+v19a held masked vs ensemble_check9: 0.6937848 vs 0.6937848 (+0.0e+00)
+  v18c+v19a held all vs ensemble_check9: 0.5288463 vs 0.5288463 (+0.0e+00)
+
+In-group score on the 697 coarse-unit sequences (unit 0.656868)
+  model      masked t0      t1    mean   all>=99 t0      t1    mean   469 masked full masked
+  v18c          0.4363  0.4305  0.4334       0.2724  0.2656  0.2690       0.4291      0.6857
+  v19a          0.4360  0.4304  0.4332       0.2712  0.2651  0.2681       0.4300      0.6856
+  v20a          0.4363  0.4305  0.4334       0.2724  0.2656  0.2690       0.4292      0.6857
+  v18c+v19a     0.4376  0.4319  0.4347       0.2737  0.2673  0.2705       0.4310      0.6867
+
+Per unit, masked mean / all>=99 mean (sequences)
+  model               0.125433           0.24133          0.468536          0.656868
+                         (398)             (347)             (431)             (697)
+  v18c         0.8004 / 0.5850   0.7683 / 0.5011   0.7307 / 0.3683   0.4334 / 0.2690
+  v19a         0.8001 / 0.5853   0.7684 / 0.5030   0.7312 / 0.3711   0.4332 / 0.2681
+  v20a         0.8004 / 0.5850   0.7683 / 0.5011   0.7307 / 0.3683   0.4334 / 0.2690
+  v18c+v19a    0.8016 / 0.5882   0.7696 / 0.5051   0.7322 / 0.3731   0.4347 / 0.2705
+
+Share of the masked metric weight in the coarse group: 47.7%
