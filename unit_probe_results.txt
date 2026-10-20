@@ -1,0 +1,114 @@
+train: 10607 sequences: 0.125433 1305, 0.24133 1257, 0.468536 3488, 0.656868 4557; 48 labelled from the full sequence (first 2000 steps never at 1 unit); unmatched 0; integer-multiple check fails 0
+valid: 1873 sequences: 0.125433 398, 0.24133 347, 0.468536 431, 0.656868 697; 2 labelled from the full sequence (first 2000 steps never at 1 unit); unmatched 0; integer-multiple check fails 0
+valid: first-2000-step label equals the full-sequence label for 1873/1873 sequences (unit_analysis.py counts 398 / 347 / 431 / 697: [398, 347, 431, 697])
+
+Features: per-column mean, std and mean |change| of the 168 inputs over steps 0..K-1 (504 features). CV: 5 folds stratified by unit, seed 0. Confusion rows = true unit, columns = predicted.
+
+K=20 logreg, train 5-fold CV: accuracy 0.9888 (119 wrong of 10607); 0.6569 sequences called another unit 62/4557, other units called 0.6569 46/6050
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433    1302       0       3       0
+      0.24133       2    1245       1       9
+     0.468536       5       0    3446      37
+     0.656868       1       4      57    4495
+
+K=20 logreg, train all -> valid 1,873: accuracy 0.9979 (4 wrong of 1873); 0.6569 sequences called another unit 1/697, other units called 0.6569 2/1176
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433     397       0       1       0
+      0.24133       0     346       0       1
+     0.468536       0       0     430       1
+     0.656868       0       0       1     696
+
+K=20 lgbm, train 5-fold CV: accuracy 0.9999 (1 wrong of 10607); 0.6569 sequences called another unit 1/4557, other units called 0.6569 0/6050
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433    1305       0       0       0
+      0.24133       0    1257       0       0
+     0.468536       0       0    3488       0
+     0.656868       0       0       1    4556
+
+K=20 lgbm, train all -> valid 1,873: accuracy 1.0000 (0 wrong of 1873); 0.6569 sequences called another unit 0/697, other units called 0.6569 0/1176
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433     398       0       0       0
+      0.24133       0     347       0       0
+     0.468536       0       0     431       0
+     0.656868       0       0       0     697
+
+K=50 logreg, train 5-fold CV: accuracy 0.9916 (89 wrong of 10607); 0.6569 sequences called another unit 45/4557, other units called 0.6569 33/6050
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433    1301       0       4       0
+      0.24133       1    1251       1       4
+     0.468536       4       1    3454      29
+     0.656868       0       4      41    4512
+
+K=50 logreg, train all -> valid 1,873: accuracy 0.9984 (3 wrong of 1873); 0.6569 sequences called another unit 0/697, other units called 0.6569 1/1176
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433     396       0       2       0
+      0.24133       0     346       0       1
+     0.468536       0       0     431       0
+     0.656868       0       0       0     697
+
+K=50 lgbm, train 5-fold CV: accuracy 0.9994 (6 wrong of 10607); 0.6569 sequences called another unit 4/4557, other units called 0.6569 2/6050
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433    1305       0       0       0
+      0.24133       0    1256       0       1
+     0.468536       0       0    3487       1
+     0.656868       0       0       4    4553
+
+K=50 lgbm, train all -> valid 1,873: accuracy 1.0000 (0 wrong of 1873); 0.6569 sequences called another unit 0/697, other units called 0.6569 0/1176
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433     398       0       0       0
+      0.24133       0     347       0       0
+     0.468536       0       0     431       0
+     0.656868       0       0       0     697
+
+K=99 logreg, train 5-fold CV: accuracy 0.9939 (65 wrong of 10607); 0.6569 sequences called another unit 32/4557, other units called 0.6569 25/6050
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433    1302       0       3       0
+      0.24133       0    1253       0       4
+     0.468536       3       2    3462      21
+     0.656868       0       4      28    4525
+
+K=99 logreg, train all -> valid 1,873: accuracy 0.9984 (3 wrong of 1873); 0.6569 sequences called another unit 0/697, other units called 0.6569 2/1176
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433     397       0       1       0
+      0.24133       0     345       0       2
+     0.468536       0       0     431       0
+     0.656868       0       0       0     697
+
+K=99 lgbm, train 5-fold CV: accuracy 0.9996 (4 wrong of 10607); 0.6569 sequences called another unit 3/4557, other units called 0.6569 1/6050
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433    1305       0       0       0
+      0.24133       0    1256       0       1
+     0.468536       0       0    3488       0
+     0.656868       0       1       2    4554
+
+K=99 lgbm, train all -> valid 1,873: accuracy 0.9995 (1 wrong of 1873); 0.6569 sequences called another unit 0/697, other units called 0.6569 1/1176
+    true\pred 0.125433 0.24133 0.468536 0.656868
+     0.125433     398       0       0       0
+      0.24133       0     346       0       1
+     0.468536       0       0     431       0
+     0.656868       0       0       0     697
+
+Top 10 input columns, K=99, LightGBM gain summed over mean/std/mean|change| (share of total gain):
+  i0_v0             13.9%  (mean 13.9%, std 0.0%, |chg| 0.0%)
+  i0_p1             10.9%  (mean 2.2%, std 8.7%, |chg| 0.0%)
+  i0_v17            10.4%  (mean 10.4%, std 0.0%, |chg| 0.0%)
+  i0_p2              6.7%  (mean 5.8%, std 0.9%, |chg| 0.0%)
+  i0_p13             5.1%  (mean 4.0%, std 1.1%, |chg| 0.0%)
+  i1_v0              4.4%  (mean 4.3%, std 0.0%, |chg| 0.0%)
+  i1_v17             3.8%  (mean 3.8%, std 0.0%, |chg| 0.0%)
+  i0_v10             3.7%  (mean 0.1%, std 3.5%, |chg| 0.1%)
+  i0_p3              3.5%  (mean 3.5%, std 0.0%, |chg| 0.0%)
+  i0_p14             2.8%  (mean 0.5%, std 2.3%, |chg| 0.0%)
+Single-column logistic regression (that column's 3 stats only, K=99), train all -> valid accuracy:
+  i0_v0            0.7806
+  i0_p1            0.6845
+  i0_v17           0.7037
+  i0_p2            0.6738
+  i0_p13           0.6898
+  i1_v0            0.6209
+  i1_v17           0.5990
+  i0_v10           0.4682
+  i0_p3            0.5878
+  i0_p14           0.5483
+
+(run time 396s)
