@@ -8,6 +8,13 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
 --models "name:seed:arch:aux:aux_weight,name:seed:arch:aux:aux_weight,..."
     e.g. "train_v16_a:0:gru:50,200,-50,-200:0.25,train_v16_b:1:lstm::0"
     aux is train_v5m.py's --aux (commas inside it are fine; "" = none), aux_weight its --aux-weight.
+    Optional per-model settings follow as key=value fields after aux_weight, each after a ':':
+      alpha=A     mask-weight alpha (default: the shared --alpha)
+      layers=L    recurrent layers (default 2)
+      dropout=D   dropout between recurrent layers, training only (default 0; needs layers >= 2)
+      wd=W        AdamW weight decay (default: the shared --wd, 0.01)
+    e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
+    With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
 train_v5m.py (holdout/train split, valid subset, batch order). Model i's weights are initialised after
 torch.manual_seed(seed_i), as train_v5m.py does after set_seed(seed). So a K = 1 run with seed = data
@@ -42,23 +49,65 @@ from train_v5m import (ARCHS, CKPT_DIR, FLAG_COLS, GPU_MEM_CAP_GB, OTHER_COLS, P
                        detach_state, load_split, loss_fn, parse_offsets, set_seed)
 
 
+OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float}
+
+
 def parse_models(spec):
-    """'n:s:a:aux:w,n:s:a:aux:w' -> list of dicts. aux may hold commas, so split on ':' and peel the name of
-    the next model off the end of each aux_weight field."""
+    """'n:s:a:aux:w[:k=v...],n:s:a:aux:w[:k=v...]' -> list of dicts (options None = default). aux may hold
+    commas, so split on ':'; after aux, every field is aux_weight or k=v, and a field holding a ',' ends the
+    model, with the next model's name after the comma (aux_weight and option values have no commas)."""
     tok = spec.split(":")
-    assert len(tok) % 4 == 1 and len(tok) >= 5, f"bad --models {spec!r}"
-    n = (len(tok) - 1) // 4
-    out, name = [], tok[0]
-    for i in range(n):
-        seed, arch, aux, last = tok[1 + 4 * i:5 + 4 * i]
-        w, nxt = (last.split(",", 1) if i < n - 1 else (last, None))
+    out, i = [], 0
+    while i < len(tok):
+        assert i + 4 < len(tok), f"bad --models {spec!r}"
+        name, seed, arch, aux = tok[i:i + 4]
         assert arch in ARCHS, f"arch {arch!r}"
-        out.append({"name": name, "seed": int(seed), "arch": arch, "aux": aux, "aux_weight": float(w),
-                    "offsets": parse_offsets(aux)})
-        name = nxt
+        fields, i, nxt = [], i + 4, None
+        while i < len(tok):
+            f = tok[i]
+            i += 1
+            if "," in f:
+                f, nxt = f.split(",", 1)
+            fields.append(f)
+            if nxt is not None:
+                break
+        m = {"name": name, "seed": int(seed), "arch": arch, "aux": aux, "aux_weight": float(fields[0]),
+             "offsets": parse_offsets(aux), **{k: None for k in OPTIONS}}
+        for f in fields[1:]:
+            k, v = f.split("=", 1)
+            assert k in OPTIONS, f"unknown option {k!r} (known: {sorted(OPTIONS)})"
+            m[k] = OPTIONS[k](v)
+        assert m["dropout"] is None or m["dropout"] == 0 or (m["layers"] or 2) >= 2
+        out.append(m)
+        if nxt is not None:
+            tok[i - 1] = nxt  # the next model starts at the name peeled off this field
+            i -= 1
     names = [m["name"] for m in out]
     assert len(set(names)) == len(names), f"duplicate names {names}"
     return out
+
+
+class RNNModel(torch.nn.Module):
+    """train_v5m.GRUModel / LSTMModel with dropout between layers (same attribute names and init order)."""
+
+    def __init__(self, arch, n_in, hidden, layers, n_out, dropout):
+        super().__init__()
+        rnn = torch.nn.GRU if arch == "gru" else torch.nn.LSTM
+        setattr(self, arch, rnn(n_in, hidden, num_layers=layers, batch_first=True, dropout=dropout))
+        self.rnn_name = arch
+        self.head = torch.nn.Linear(hidden, n_out)
+
+    def forward(self, x, h=None):
+        out, h = getattr(self, self.rnn_name)(x, h)
+        return self.head(out), h
+
+
+def build_model(sp, hidden):
+    n_out, layers, dropout = 2 + 2 * len(sp["offsets"]), sp["layers"] or 2, sp["dropout"] or 0.0
+    if dropout == 0:
+        return ARCHS[sp["arch"]](hidden=hidden, layers=layers, n_out=n_out)
+    from train_v5m import N_IN
+    return RNNModel(sp["arch"], N_IN, hidden, layers, n_out, dropout)
 
 
 @torch.no_grad()
@@ -111,6 +160,9 @@ def main():
     args = ap.parse_args()
 
     specs = parse_models(args.models)
+    for sp in specs:  # resolved settings (the trailing _ marks resolved values)
+        sp.update(alpha_=args.alpha if sp["alpha"] is None else sp["alpha"], layers_=sp["layers"] or 2,
+                  dropout_=sp["dropout"] or 0.0, wd_=args.wd if sp["wd"] is None else sp["wd"])
     data_seed = specs[0]["seed"] if args.data_seed is None else args.data_seed
     sfx = "_smoke" if args.smoke else ""
     for sp in specs:
@@ -140,6 +192,7 @@ def main():
         """The checkpoint/log args of this model, in train_v5m.py's layout."""
         a = {k: v for k, v in vars(args).items() if k not in ("models", "data_seed", "run")}
         a.update(seed=sp["seed"], name=sp["name"], arch=sp["arch"], aux=sp["aux"], aux_weight=sp["aux_weight"],
+                 alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
                  data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
 
@@ -189,12 +242,14 @@ def main():
         random.seed(sp["seed"])
         torch.manual_seed(sp["seed"])
         torch.cuda.manual_seed_all(sp["seed"])
-        sp["model"] = ARCHS[sp["arch"]](hidden=args.hidden, n_out=2 + 2 * len(sp["offsets"])).to(device)
+        sp["model"] = build_model(sp, args.hidden).to(device)
+        mlog(sp, f"settings: alpha {sp['alpha_']}, layers {sp['layers_']}, dropout {sp['dropout_']}, "
+                 f"weight decay {sp['wd_']}")
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
         mlog(sp, f"params: {sum(p.numel() for p in sp['model'].parameters()):,}")
-        sp["opt"] = torch.optim.AdamW(sp["model"].parameters(), lr=args.lr, weight_decay=args.wd)
+        sp["opt"] = torch.optim.AdamW(sp["model"].parameters(), lr=args.lr, weight_decay=sp["wd_"])
         sp["sched"] = torch.optim.lr_scheduler.LambdaLR(
             sp["opt"], lambda s: 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
         sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, t_model=0.0, t_since=0.0)
@@ -251,10 +306,13 @@ def main():
                 break
             x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
             y = torch.from_numpy(b["targets"]).to(device)
-            m_all = None
+            m_all = {}  # per alpha: (B,T,1) mask weights, or None without --mask-p
             if mean_p is not None:
                 p = torch.from_numpy(b["maskp"]).to(device).float()
-                m_all = (args.alpha + (1 - args.alpha) * (p / mean_p).clamp(max=20.0))[:, :, None]
+            for sp in specs:
+                a = sp["alpha_"]
+                if a not in m_all:
+                    m_all[a] = None if mean_p is None else (a + (1 - a) * (p / mean_p).clamp(max=20.0))[:, :, None]
             aux = {}
             for sp in specs:
                 key = tuple(sp["offsets"])
@@ -266,9 +324,9 @@ def main():
                     break
                 ts = time.time()
                 valid_mask = (steps_in_chunk[s:s + args.chunk] >= WARMUP).float()[None, :, None]
-                m = None if m_all is None else m_all[:, s:s + args.chunk]
                 for sp in specs:
                     tm = time.time()
+                    m = None if m_all[sp["alpha_"]] is None else m_all[sp["alpha_"]][:, s:s + args.chunk]
                     pred, sp["h"] = sp["model"](x[:, s:s + args.chunk], sp["h"])
                     if sp["offsets"]:
                         y_aux, in_range = aux[tuple(sp["offsets"])]
