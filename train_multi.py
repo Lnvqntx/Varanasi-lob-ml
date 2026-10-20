@@ -13,6 +13,13 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
       layers=L    recurrent layers (default 2)
       dropout=D   dropout between recurrent layers, training only (default 0; needs layers >= 2)
       wd=W        AdamW weight decay (default: the shared --wd, 0.01)
+      lr=R        peak learning rate of the cosine schedule (default: the shared --lr, 1e-3)
+      hidden=H    hidden size (default: the shared --hidden)
+      ema=D       EMA decay of the weights (default 0 = off). When D > 0 an EMA copy of the parameters is
+                  updated after every optimizer step (p_ema += (1 - D) * (p - p_ema), starting from the
+                  initial weights); evaluation and the best / final checkpoints use the EMA weights (a standard
+                  state dict, so the exporters work unchanged), and the raw weights are evaluated in the same
+                  pass and logged on a separate "raw (non-EMA)" line for comparison.
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -36,6 +43,7 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 import argparse
+import copy
 import logging
 import math
 import random
@@ -49,7 +57,7 @@ from train_v5m import (ARCHS, CKPT_DIR, FLAG_COLS, GPU_MEM_CAP_GB, OTHER_COLS, P
                        detach_state, load_split, loss_fn, parse_offsets, set_seed)
 
 
-OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float}
+OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float}
 
 
 def parse_models(spec):
@@ -78,6 +86,7 @@ def parse_models(spec):
             assert k in OPTIONS, f"unknown option {k!r} (known: {sorted(OPTIONS)})"
             m[k] = OPTIONS[k](v)
         assert m["dropout"] is None or m["dropout"] == 0 or (m["layers"] or 2) >= 2
+        assert m["ema"] is None or 0 <= m["ema"] < 1, f"ema {m['ema']} not in [0, 1)"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -162,7 +171,9 @@ def main():
     specs = parse_models(args.models)
     for sp in specs:  # resolved settings (the trailing _ marks resolved values)
         sp.update(alpha_=args.alpha if sp["alpha"] is None else sp["alpha"], layers_=sp["layers"] or 2,
-                  dropout_=sp["dropout"] or 0.0, wd_=args.wd if sp["wd"] is None else sp["wd"])
+                  dropout_=sp["dropout"] or 0.0, wd_=args.wd if sp["wd"] is None else sp["wd"],
+                  lr_=args.lr if sp["lr"] is None else sp["lr"], hidden_=sp["hidden"] or args.hidden,
+                  ema_=sp["ema"] or 0.0)
     data_seed = specs[0]["seed"] if args.data_seed is None else args.data_seed
     sfx = "_smoke" if args.smoke else ""
     for sp in specs:
@@ -193,7 +204,7 @@ def main():
         a = {k: v for k, v in vars(args).items() if k not in ("models", "data_seed", "run")}
         a.update(seed=sp["seed"], name=sp["name"], arch=sp["arch"], aux=sp["aux"], aux_weight=sp["aux_weight"],
                  alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
-                 data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
+                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
 
     log(f"args: {vars(args)}; data seed {data_seed}; {len(specs)} models")
@@ -242,14 +253,22 @@ def main():
         random.seed(sp["seed"])
         torch.manual_seed(sp["seed"])
         torch.cuda.manual_seed_all(sp["seed"])
-        sp["model"] = build_model(sp, args.hidden).to(device)
+        sp["model"] = build_model(sp, sp["hidden_"]).to(device)
+        # EMA copy (deepcopy draws no random numbers, so the other models' streams are unaffected)
+        sp["ema_model"] = copy.deepcopy(sp["model"]) if sp["ema_"] > 0 else None
+        if sp["ema_model"] is not None:
+            for q in sp["ema_model"].parameters():
+                q.requires_grad_(False)
+            for mod in sp["ema_model"].modules():
+                if isinstance(mod, torch.nn.RNNBase):
+                    mod.flatten_parameters()  # keep the copy's cuDNN weights in one chunk (lerp_ is in place)
         mlog(sp, f"settings: alpha {sp['alpha_']}, layers {sp['layers_']}, dropout {sp['dropout_']}, "
-                 f"weight decay {sp['wd_']}")
+                 f"weight decay {sp['wd_']}, lr {sp['lr_']}, hidden {sp['hidden_']}, ema {sp['ema_']}")
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
         mlog(sp, f"params: {sum(p.numel() for p in sp['model'].parameters()):,}")
-        sp["opt"] = torch.optim.AdamW(sp["model"].parameters(), lr=args.lr, weight_decay=sp["wd_"])
+        sp["opt"] = torch.optim.AdamW(sp["model"].parameters(), lr=sp["lr_"], weight_decay=sp["wd_"])
         sp["sched"] = torch.optim.lr_scheduler.LambdaLR(
             sp["opt"], lambda s: 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
         sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, t_model=0.0, t_since=0.0)
@@ -264,20 +283,29 @@ def main():
     run_n, t_train, t_last = 0, 0.0, time.time()
     t_wait = 0.0  # time the GPU loop waited for the loader
 
+    def eval_model(sp):
+        return sp["model"] if sp["ema_model"] is None else sp["ema_model"]
+
     def save(sp, path, rv, rva, rh):
-        torch.save({"model": sp["model"].state_dict(), "stats": stats, "args": model_args(sp), "step": step,
+        torch.save({"model": eval_model(sp).state_dict(), "stats": stats, "args": model_args(sp), "step": step,
                     "valid": rv, "valid_all": rva, "holdout": rh, "price_cols": PRICE_COLS, "other_cols": OTHER_COLS,
                     "flag_cols": FLAG_COLS}, path)
 
     def do_eval(final=False):
         torch.cuda.synchronize()
         te = time.time()
-        models = [sp["model"] for sp in specs]
+        # EMA models are evaluated with their EMA weights; their raw weights are appended for comparison
+        raw = [sp for sp in specs if sp["ema_model"] is not None]
+        models = [eval_model(sp) for sp in specs] + [sp["model"] for sp in raw]
         rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True)
         tv = time.time() - te
         rhs = evaluate_multi(models, train, holdout_idx, stats, device, args.chunk, use_is_scored=False)
         th = time.time() - te - tv
-        for sp, (rv, rva), rh in zip(specs, rvs, rhs):
+        for sp, (rv, rva), rh in zip(raw, rvs[len(specs):], rhs[len(specs):]):
+            mlog(sp, f"[eval step {step}] raw (non-EMA) weights: valid is_scored wp={rv['weighted_pearson']:.4f} "
+                     f"(t0 {rv['t0']:.4f}, t1 {rv['t1']:.4f}) | valid all>=99 wp={rva['weighted_pearson']:.4f} | "
+                     f"train-holdout wp={rh['weighted_pearson']:.4f}")
+        for sp, (rv, rva), rh in zip(specs, rvs[:len(specs)], rhs[:len(specs)]):
             mlog(sp, f"[eval step {step}] valid is_scored wp={rv['weighted_pearson']:.4f} (t0 {rv['t0']:.4f}, "
                      f"t1 {rv['t1']:.4f}, rows {rv['selected_rows']:,}) | valid all>=99 wp={rva['weighted_pearson']:.4f} "
                      f"(t0 {rva['t0']:.4f}, t1 {rva['t1']:.4f}) | train-holdout wp={rh['weighted_pearson']:.4f} "
@@ -343,6 +371,10 @@ def main():
                     torch.nn.utils.clip_grad_norm_(sp["model"].parameters(), 1.0)
                     sp["opt"].step()
                     sp["sched"].step()
+                    if sp["ema_model"] is not None:
+                        with torch.no_grad():
+                            torch._foreach_lerp_(list(sp["ema_model"].parameters()), list(sp["model"].parameters()),
+                                                 1.0 - sp["ema_"])
                     sp["h"] = detach_state(sp["h"])
                     sp["run_loss"] += loss.item()  # .item() synchronises, so the timing below is real GPU time
                     dt = time.time() - tm
