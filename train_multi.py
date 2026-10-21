@@ -20,6 +20,10 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
                   initial weights); evaluation and the best / final checkpoints use the EMA weights (a standard
                   state dict, so the exporters work unchanged), and the raw weights are evaluated in the same
                   pass and logged on a separate "raw (non-EMA)" line for comparison.
+      noise=S     Gaussian input noise, training only (default 0 = off): N(0, S^2) is added to the standardised
+                  input columns of this model's training chunks (all but the 12 fill-value flag columns). The
+                  noise comes from the model's own torch.Generator (seed NOISE_SEED + init seed), so data order,
+                  initialisation and every other random stream are unchanged; evaluation never adds noise.
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -65,8 +69,12 @@ from train_v5m import (ARCHS, CKPT_DIR, FLAG_COLS, GPU_MEM_CAP_GB, OTHER_COLS, P
                        GlobalAccumulator, Prefetcher, aux_loss, aux_targets, build_inputs, compute_stats,
                        detach_state, load_split, loss_fn, parse_offsets, set_seed)
 
+N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (build_inputs puts the flags last)
 
-OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float}
+
+OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
+           "noise": float}
+NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
 
 
 def parse_models(spec):
@@ -96,6 +104,7 @@ def parse_models(spec):
             m[k] = OPTIONS[k](v)
         assert m["dropout"] is None or m["dropout"] == 0 or (m["layers"] or 2) >= 2
         assert m["ema"] is None or 0 <= m["ema"] < 1, f"ema {m['ema']} not in [0, 1)"
+        assert m["noise"] is None or m["noise"] >= 0, f"noise {m['noise']} < 0"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -184,7 +193,7 @@ def main():
         sp.update(alpha_=args.alpha if sp["alpha"] is None else sp["alpha"], layers_=sp["layers"] or 2,
                   dropout_=sp["dropout"] or 0.0, wd_=args.wd if sp["wd"] is None else sp["wd"],
                   lr_=args.lr if sp["lr"] is None else sp["lr"], hidden_=sp["hidden"] or args.hidden,
-                  ema_=sp["ema"] or 0.0)
+                  ema_=sp["ema"] or 0.0, noise_=sp["noise"] or 0.0)
     data_seed = specs[0]["seed"] if args.data_seed is None else args.data_seed
     sfx = "_smoke" if args.smoke else ""
     for sp in specs:
@@ -215,7 +224,7 @@ def main():
         a = {k: v for k, v in vars(args).items() if k not in ("models", "data_seed", "run")}
         a.update(seed=sp["seed"], name=sp["name"], arch=sp["arch"], aux=sp["aux"], aux_weight=sp["aux_weight"],
                  alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
-                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
+                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
 
     log(f"args: {vars(args)}; data seed {data_seed}; {len(specs)} models")
@@ -293,8 +302,15 @@ def main():
             for mod in sp["ema_model"].modules():
                 if isinstance(mod, torch.nn.RNNBase):
                     mod.flatten_parameters()  # keep the copy's cuDNN weights in one chunk (lerp_ is in place)
+        # input noise: the model's own generator, so no other random stream moves
+        sp["noise_gen"] = None
+        if sp["noise_"] > 0:
+            sp["noise_gen"] = torch.Generator(device=device)
+            sp["noise_gen"].manual_seed(NOISE_SEED + sp["seed"])
         mlog(sp, f"settings: alpha {sp['alpha_']}, layers {sp['layers_']}, dropout {sp['dropout_']}, "
-                 f"weight decay {sp['wd_']}, lr {sp['lr_']}, hidden {sp['hidden_']}, ema {sp['ema_']}")
+                 f"weight decay {sp['wd_']}, lr {sp['lr_']}, hidden {sp['hidden_']}, ema {sp['ema_']}"
+                 + ("" if sp["noise_gen"] is None else f", input noise {sp['noise_']} (training only, generator seed "
+                                                       f"{NOISE_SEED + sp['seed']}, {N_CONT} standardised columns)"))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
@@ -372,6 +388,7 @@ def main():
                 seen += np.bincount(unit_tr[batches[bi]], minlength=4)
             x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
             y = torch.from_numpy(b["targets"]).to(device)
+            assert x.shape[2] == N_CONT + len(FLAG_COLS)
             m_all = {}  # per alpha: (B,T,1) mask weights, or None without --mask-p
             if mean_p is not None:
                 p = torch.from_numpy(b["maskp"]).to(device).float()
@@ -393,7 +410,12 @@ def main():
                 for sp in specs:
                     tm = time.time()
                     m = None if m_all[sp["alpha_"]] is None else m_all[sp["alpha_"]][:, s:s + args.chunk]
-                    pred, sp["h"] = sp["model"](x[:, s:s + args.chunk], sp["h"])
+                    xc = x[:, s:s + args.chunk]
+                    if sp["noise_gen"] is not None:  # training only; flags (the last 12 columns) stay exact
+                        xc = torch.cat([xc[:, :, :N_CONT] + sp["noise_"] * torch.randn(
+                            xc.shape[0], xc.shape[1], N_CONT, device=device, generator=sp["noise_gen"]),
+                            xc[:, :, N_CONT:]], dim=2)
+                    pred, sp["h"] = sp["model"](xc, sp["h"])
                     if sp["offsets"]:
                         y_aux, in_range = aux[tuple(sp["offsets"])]
                         main = loss_fn(pred[:, :, :2], y[:, s:s + args.chunk], valid_mask, m)
