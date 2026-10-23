@@ -1,0 +1,16 @@
+Teacher = v18c + v19a final checkpoints (average of raw outputs, clipped to [-2, 2], float16), all train rows
+  v18c: /home/jovyan/work/checkpoints/train_v18c_wd05_nodrop_final.pt
+  v19a: /home/jovyan/work/checkpoints/train_v19a_wd10_ds1_final.pt
+
+Verify: fresh forward pass (one sequence at a time) on 20 train sequences (seed 20261023: [1805, 1917, 2300, 2775, 3339, 3352, 3675, 4529, 5736, 5803, 6318, 7905, 8689, 9049, 9217, 9832, 9965, 9991, 10064, 10198]): max |fresh - saved| = 9.77e-04 over both targets and all 20,000 steps (PASS, tolerance 0.001)
+
+Weighted Pearson against the train targets (all rows >= 99, weights |clipped y|; t0 / t1 / mean)
+  teacher recomputed from the saved files; v18c and v19a from the main pass (/home/jovyan/work/teacher_stats.npz)
+  set                                                      seqs                  teacher      v18c    v19a
+  data-seed-0 holdout (unseen by v18c; v25's holdout)       300   0.4761 / 0.4488 / 0.4624    0.4524  0.4668
+  data-seed-1 holdout (unseen by v19a)                      300   0.4513 / 0.4714 / 0.4614    0.4671  0.4502
+  both holdouts (unseen by both)                              6   0.3499 / 0.3217 / 0.3358    0.3343  0.3321
+  300 other train seqs (trained on by both)                 300   0.4860 / 0.4968 / 0.4914    0.4940  0.4833
+
+Overfit gap of the teacher (trained-on minus unseen-by-both): +0.1556; trained-on minus data-seed-0 holdout: +0.0290
+Note: a data-seed-0 student never trains on the data-seed-0 holdout; on the rows it trains on, the teacher has seen every row through v18c and all but the data-seed-1 holdout through v19a.

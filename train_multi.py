@@ -24,6 +24,12 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
                   input columns of this model's training chunks (all but the 12 fill-value flag columns). The
                   noise comes from the model's own torch.Generator (seed NOISE_SEED + init seed), so data order,
                   initialisation and every other random stream are unchanged; evaluation never adds noise.
+      kd=K        distillation weight (default 0 = off; needs no aux): the training loss becomes
+                  (1 - K) * main_loss + K * teacher_loss, where teacher_loss is the same weighted MSE (same row
+                  weights, steps >= 99 mask and normalisation) between the clipped output and the teacher prediction
+                  for the same rows (make_teacher.py: v18c + v19a, clipped, float16; read with the batch from --teacher)
+      wpow=P      row-weight power (default 1; needs no aux): the row weight becomes (|clipped y|^P + 0.05) times the
+                  mask weight instead of (|clipped y| + 0.05). With kd 0 and wpow 1 the loss is train_v5m.loss_fn.
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -73,7 +79,7 @@ N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (bu
 
 
 OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
-           "noise": float}
+           "noise": float, "kd": float, "wpow": float}
 NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
 
 
@@ -105,6 +111,9 @@ def parse_models(spec):
         assert m["dropout"] is None or m["dropout"] == 0 or (m["layers"] or 2) >= 2
         assert m["ema"] is None or 0 <= m["ema"] < 1, f"ema {m['ema']} not in [0, 1)"
         assert m["noise"] is None or m["noise"] >= 0, f"noise {m['noise']} < 0"
+        assert m["kd"] is None or 0 <= m["kd"] <= 1, f"kd {m['kd']} not in [0, 1]"
+        assert m["wpow"] is None or m["wpow"] > 0, f"wpow {m['wpow']} <= 0"
+        assert not aux or (m["kd"] or 0) == 0 and (m["wpow"] or 1) == 1, "kd / wpow need a model without aux heads"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -127,6 +136,22 @@ class RNNModel(torch.nn.Module):
     def forward(self, x, h=None):
         out, h = getattr(self, self.rnn_name)(x, h)
         return self.head(out), h
+
+
+def kd_loss_fn(pred, y, t, valid, m, kd, wpow):
+    """train_v5m.loss_fn with the row weight (|yc|^wpow + 0.05) * valid * m, mixed with the same weighted MSE against
+    the teacher t (None when kd == 0). Returns (loss, main loss, teacher loss or None)."""
+    yc = y.clamp(-2, 2)
+    pc = pred.clamp(-2, 2)
+    w = ((yc.abs() if wpow == 1 else yc.abs() ** wpow) + 0.05) * valid
+    if m is not None:
+        w = w * m
+    den = w.sum().clamp_min(1e-8)
+    main = (w * (pc - yc) ** 2).sum() / den
+    if kd == 0:
+        return main, main, None
+    teach = (w * (pc - t.clamp(-2, 2)) ** 2).sum() / den
+    return (1 - kd) * main + kd * teach, main, teach
 
 
 def build_model(sp, hidden):
@@ -184,6 +209,8 @@ def main():
     ap.add_argument("--hidden", type=int, default=256)
     ap.add_argument("--mask-p", default=None, help="float16 train p(scored) cache from mask_gru.py infer")
     ap.add_argument("--alpha", type=float, default=1.0, help="m = alpha + (1 - alpha) * min(p / mean_p, 20)")
+    ap.add_argument("--teacher", default="/home/jovyan/work/cache/train_teacher_t{t}.npy",
+                    help="teacher prediction files for kd= ({t} = 0, 1), make_teacher.py")
     ap.add_argument("--unit-filter", type=float, default=None,
                     help="train / evaluate only on the sequences of this target unit (e.g. 0.6569)")
     args = ap.parse_args()
@@ -193,7 +220,9 @@ def main():
         sp.update(alpha_=args.alpha if sp["alpha"] is None else sp["alpha"], layers_=sp["layers"] or 2,
                   dropout_=sp["dropout"] or 0.0, wd_=args.wd if sp["wd"] is None else sp["wd"],
                   lr_=args.lr if sp["lr"] is None else sp["lr"], hidden_=sp["hidden"] or args.hidden,
-                  ema_=sp["ema"] or 0.0, noise_=sp["noise"] or 0.0)
+                  ema_=sp["ema"] or 0.0, noise_=sp["noise"] or 0.0,
+                  kd_=sp["kd"] or 0.0, wpow_=1.0 if sp["wpow"] is None else sp["wpow"])
+        sp["custom_loss"] = sp["kd_"] > 0 or sp["wpow_"] != 1
     data_seed = specs[0]["seed"] if args.data_seed is None else args.data_seed
     sfx = "_smoke" if args.smoke else ""
     for sp in specs:
@@ -224,7 +253,7 @@ def main():
         a = {k: v for k, v in vars(args).items() if k not in ("models", "data_seed", "run")}
         a.update(seed=sp["seed"], name=sp["name"], arch=sp["arch"], aux=sp["aux"], aux_weight=sp["aux_weight"],
                  alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
-                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
+                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
 
     log(f"args: {vars(args)}; data seed {data_seed}; {len(specs)} models")
@@ -277,6 +306,15 @@ def main():
             f"(steps >= {WARMUP}); m = alpha + (1 - alpha) * min(p / mean_p, 20)"
             + ("" if unit_k is None else " (unfiltered training set, as a generalist run)"))
 
+    use_teacher = any(sp["kd_"] > 0 for sp in specs)
+    if use_teacher:
+        for t in range(2):
+            tp = args.teacher.format(t=t)
+            tm = np.load(tp, mmap_mode="r")
+            assert tm.shape == train["prices"].shape[:2] and tm.dtype == np.float16, f"teacher {tp} {tm.shape} {tm.dtype}"
+            train_fit = dict(train_fit, **{f"teacher_t{t}": tm})
+        log(f"teacher predictions from {args.teacher} (read with each training batch)")
+
     grp = "" if unit_k is None else f" | in-group: unit {unit_value} only ({len(val_idx)} valid seqs)"
     seen = np.zeros(4, np.int64)  # trained sequences per unit (with --unit-filter)
     t0 = time.time()
@@ -310,7 +348,9 @@ def main():
         mlog(sp, f"settings: alpha {sp['alpha_']}, layers {sp['layers_']}, dropout {sp['dropout_']}, "
                  f"weight decay {sp['wd_']}, lr {sp['lr_']}, hidden {sp['hidden_']}, ema {sp['ema_']}"
                  + ("" if sp["noise_gen"] is None else f", input noise {sp['noise_']} (training only, generator seed "
-                                                       f"{NOISE_SEED + sp['seed']}, {N_CONT} standardised columns)"))
+                                                       f"{NOISE_SEED + sp['seed']}, {N_CONT} standardised columns)")
+                 + (f", distillation kd {sp['kd_']} (loss = (1 - kd) * main + kd * teacher)" if sp["kd_"] > 0 else "")
+                 + (f", row weight (|y|^{sp['wpow_']} + 0.05) * m" if sp["wpow_"] != 1 else ""))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
@@ -318,7 +358,7 @@ def main():
         sp["opt"] = torch.optim.AdamW(sp["model"].parameters(), lr=sp["lr_"], weight_decay=sp["wd_"])
         sp["sched"] = torch.optim.lr_scheduler.LambdaLR(
             sp["opt"], lambda s: 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
-        sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, t_model=0.0, t_since=0.0)
+        sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, t_model=0.0, t_since=0.0)
     log(f"{batches_per_epoch} batches/epoch x {chunks_per_seq} chunks = {batches_per_epoch * chunks_per_seq} "
         f"steps/epoch; total optimizer steps {total_steps} per model")
     for sp in specs:
@@ -388,6 +428,8 @@ def main():
                 seen += np.bincount(unit_tr[batches[bi]], minlength=4)
             x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
             y = torch.from_numpy(b["targets"]).to(device)
+            if use_teacher:
+                y_t = torch.stack([torch.from_numpy(b["teacher_t0"]), torch.from_numpy(b["teacher_t1"])], 2).to(device).float()
             assert x.shape[2] == N_CONT + len(FLAG_COLS)
             m_all = {}  # per alpha: (B,T,1) mask weights, or None without --mask-p
             if mean_p is not None:
@@ -424,6 +466,13 @@ def main():
                         loss = main + sp["aux_weight"] * al
                         sp["run_main"] += main.item()
                         sp["run_aux"] += al.item()
+                    elif sp["custom_loss"]:
+                        loss, main, teach = kd_loss_fn(pred, y[:, s:s + args.chunk],
+                                                       y_t[:, s:s + args.chunk] if sp["kd_"] > 0 else None,
+                                                       valid_mask, m, sp["kd_"], sp["wpow_"])
+                        sp["run_main"] += main.item()
+                        if teach is not None:
+                            sp["run_teach"] += teach.item()
                     else:
                         loss = loss_fn(pred, y[:, s:s + args.chunk], valid_mask, m)
                     sp["opt"].zero_grad(set_to_none=True)
@@ -448,6 +497,8 @@ def main():
                     for sp in specs:
                         parts = (f" (main {sp['run_main'] / run_n:.4f}, aux sum {sp['run_aux'] / run_n:.4f})"
                                  if sp["offsets"] else "")
+                        if sp["kd_"] > 0:
+                            parts = f" (main {sp['run_main'] / run_n:.4f}, teacher {sp['run_teach'] / run_n:.4f})"
                         mlog(sp, f"epoch {epoch} step {step}/{total_steps} loss {sp['run_loss'] / run_n:.4f}{parts} "
                                  f"lr {sp['sched'].get_last_lr()[0]:.2e} | {run_n / el:.1f} steps/s wall, "
                                  f"{run_n * args.batch * args.chunk / el:,.0f} seq-steps/s | "
@@ -457,7 +508,7 @@ def main():
                                                           for sp in specs)
                         + f" steps/s; loader wait so far {t_wait:.1f}s")
                     for sp in specs:
-                        sp.update(run_loss=0.0, run_main=0.0, run_aux=0.0, t_since=0.0)
+                        sp.update(run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, t_since=0.0)
                     run_n, t_last = 0, time.time()
                 if step % args.eval_every == 0:
                     do_eval()
