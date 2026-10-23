@@ -4,9 +4,7 @@ Team **Varanasi**: Alfa Connectome ML Competition (Wunder Fund), limit order boo
 
 > This repo is private on purpose. The competition rules forbid sharing code, models or detailed strategy before the competition ends. Model weights, caches and submission zips are never committed (see `.gitignore`).
 
-**Team:** Lnvqntx, Mukesh, Tejas.
-
-*Last updated: Oct 21, 01:30 IST. The run-by-run log is `EXPERIMENTS.md`; this file is the story and the lessons.*
+**Team:** Lnvqntx, Mukesh, TejasCS.
 
 ---
 
