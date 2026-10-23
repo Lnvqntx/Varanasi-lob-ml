@@ -1,0 +1,25 @@
+Unit analysis: v7+v9 ensemble (fp32 average saved as float16 by calib_check.py) on all 1,873 valid sequences
+Metric rows: is_scored & step >= 99; targets and predictions clipped to [-2, 2]; weights |clipped y|.
+Unit = smallest nonzero |target| over all steps and both targets; matched to [0.1254, 0.2413, 0.4685, 0.6569] within 1%.
+
+Unmatched sequences: 0
+  unit 0.1254: measured smallest |y| 0.125433 .. 0.125433; max |y/unit - round| 1.53e-05
+  unit 0.2413: measured smallest |y| 0.241330 .. 0.241330; max |y/unit - round| 7.63e-06
+  unit 0.4685: measured smallest |y| 0.468536 .. 0.468536; max |y/unit - round| 9.54e-07
+  unit 0.6569: measured smallest |y| 0.656868 .. 0.656868; max |y/unit - round| 9.54e-07
+
+      unit  seqs  weight  mean|y| mean|yc|   wp t0   wp t1 wp mean  sq err slope t0 slope t1  mean p  scored
+    0.1254   398   28.2%   0.7673   0.6980  0.7951  0.8033  0.7992   17.4%    0.992    0.989  0.1250  0.1251
+    0.2413   347   15.8%   0.7662   0.7198  0.7684  0.7676  0.7680   10.6%    0.995    0.985  0.0785  0.0777
+    0.4685   431    8.3%   0.7305   0.7115  0.7303  0.7320  0.7312    6.0%    0.919    0.898  0.0333  0.0332
+    0.6569   697   47.7%   0.6922   0.6801  0.4359  0.4286  0.4322   66.1%    0.971    0.964  0.1235  0.1237
+       all  1873  100.0%   0.7276   0.6937  0.6807  0.6892  0.6850  100.0%    0.985    0.961
+  weight = share of sum |clipped y|; sq err = share of sum |yc| (yc - pc)^2; slope = weighted LS slope of clipped y on raw p (weights |yc| + 0.05, with intercept); mean p = mask probability over steps >= 99; scored = is_scored rate
+
+Check: overall from the merged group sums 0.684962 (t0 0.6807, t1 0.6892); direct 0.684962; expected 0.6850 -> OK
+
+Per-unit rescaling (prediction x its group's slope, then clipped):
+  in-sample slopes:           0.6851 (t0 0.6808, t1 0.6893), +0.0001
+  2-fold (even/odd sequences): 0.6850 (t0 0.6807, t1 0.6893), +0.0001
+  one global slope (control): 0.6850, -0.0000
+  This is an upper bound: it uses the true unit of each sequence, which is NOT known at test time (the targets are not given there); a model would have to infer it from the inputs.

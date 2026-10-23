@@ -1,0 +1,42 @@
+Ensemble check on valid (steps >= 99), fp32 PyTorch, GPU 0: v7 + v9 (mask-weighted, alpha 0.5, seeds 0/1)
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+v4 + v5 (plain recipe, seeds 0/1; the submitted ensemble) is shown as a reference.
+  v7: /home/jovyan/work/checkpoints/train_v7_maskw_a05_h128_e5_fullval_best.pt
+  v9: /home/jovyan/work/checkpoints/train_v9_maskw_a05_h128_e5_seed1_best.pt
+  v4: /home/jovyan/work/checkpoints/train_v4_h128_e5_fullval_best.pt
+  v5: /home/jovyan/work/checkpoints/train_v5_h128_e5_seed1_best.pt
+  All four picked their checkpoint on all 1,873 valid sequences (masked rows), so full-valid masked scores
+  are slightly optimistic. Held out = valid index % 4 == 0, the sequences the mask GRU never saw.
+
+Single-model sanity vs logged valid score (tolerance 0.0005):
+  v7: 0.682379 vs 0.682379 (-0.000000)
+  v9: 0.682615 vs 0.682615 (-0.000000)
+  v4: 0.678787 vs 0.678787 (+0.000000)
+  v5: 0.680102 vs 0.680102 (-0.000000)
+
+all 1873 sequences; gain = pair minus its better member
+  subset   masked t0  masked t1   masked  all rows     gain  gain all
+  v7          0.6779     0.6869   0.6824    0.5098                   
+  v9          0.6784     0.6868   0.6826    0.5104                   
+  v7+v9       0.6807     0.6892   0.6850    0.5149  +0.0023   +0.0044
+  v4          0.6745     0.6830   0.6788    0.5096                   
+  v5          0.6754     0.6848   0.6801    0.5096                   
+  v4+v5       0.6778     0.6866   0.6822    0.5146  +0.0021   +0.0050
+
+held out 469 sequences; gain = pair minus its better member
+  subset   masked t0  masked t1   masked  all rows     gain  gain all
+  v7          0.6770     0.7014   0.6892    0.5229                   
+  v9          0.6775     0.7003   0.6889    0.5230                   
+  v7+v9       0.6799     0.7032   0.6915    0.5278  +0.0023   +0.0048
+  v4          0.6720     0.6971   0.6845    0.5231                   
+  v5          0.6708     0.6973   0.6841    0.5209                   
+  v4+v5       0.6742     0.6998   0.6870    0.5270  +0.0025   +0.0039
+
+fitting 1404 sequences; gain = pair minus its better member
+  subset   masked t0  masked t1   masked  all rows     gain  gain all
+  v7          0.6781     0.6823   0.6802    0.5054                   
+  v9          0.6786     0.6825   0.6806    0.5063                   
+  v7+v9       0.6809     0.6848   0.6828    0.5105  +0.0023   +0.0043
+  v4          0.6752     0.6786   0.6769    0.5051                   
+  v5          0.6767     0.6809   0.6788    0.5059                   
+  v4+v5       0.6789     0.6824   0.6806    0.5104  +0.0018   +0.0046

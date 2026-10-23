@@ -1,0 +1,45 @@
+Ensemble check on valid (steps >= 99), fp32 PyTorch, GPU 0: v7, v9, v10 (mask-weighted, alpha 0.5, seeds 0/1/2)
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+  v7: /home/jovyan/work/checkpoints/train_v7_maskw_a05_h128_e5_fullval_best.pt
+  v9: /home/jovyan/work/checkpoints/train_v9_maskw_a05_h128_e5_seed1_best.pt
+  v10: /home/jovyan/work/checkpoints/train_v10_maskw_a05_h128_e5_seed2_best.pt
+  All three picked their checkpoint on all 1,873 valid sequences (masked rows), so full-valid masked scores
+  are slightly optimistic. Held out = valid index % 4 == 0, the sequences the mask GRU never saw.
+
+Single-model sanity vs logged valid score (tolerance 0.0005):
+  v7: 0.682379 vs 0.682379 (-0.000000)
+  v9: 0.682615 vs 0.682615 (-0.000000)
+  v10: 0.681622 vs 0.681622 (-0.000000)
+
+all 1873 sequences; gain = ensemble minus its best member
+  subset       masked t0  masked t1   masked  all rows     gain  gain all
+  v7              0.6779     0.6869   0.6824    0.5098                   
+  v9              0.6784     0.6868   0.6826    0.5104                   
+  v10             0.6775     0.6858   0.6816    0.5079                   
+  v7+v9           0.6807     0.6892   0.6850    0.5149  +0.0023   +0.0044
+  v7+v10          0.6804     0.6888   0.6846    0.5140  +0.0022   +0.0042
+  v9+v10          0.6809     0.6887   0.6848    0.5142  +0.0022   +0.0037
+  v7+v9+v10       0.6816     0.6897   0.6856    0.5160  +0.0030   +0.0056
+  best pair v7+v9: masked 0.6850; triple adds +0.0007 masked, +0.0011 all rows
+
+held out 469 sequences; gain = ensemble minus its best member
+  subset       masked t0  masked t1   masked  all rows     gain  gain all
+  v7              0.6770     0.7014   0.6892    0.5229                   
+  v9              0.6775     0.7003   0.6889    0.5230                   
+  v10             0.6736     0.6990   0.6863    0.5191                   
+  v7+v9           0.6799     0.7032   0.6915    0.5278  +0.0023   +0.0048
+  v7+v10          0.6780     0.7027   0.6903    0.5263  +0.0011   +0.0034
+  v9+v10          0.6787     0.7021   0.6904    0.5262  +0.0015   +0.0032
+  v7+v9+v10       0.6798     0.7035   0.6916    0.5285  +0.0024   +0.0055
+  best pair v7+v9: masked 0.6915; triple adds +0.0001 masked, +0.0007 all rows
+
+fitting 1404 sequences; gain = ensemble minus its best member
+  subset       masked t0  masked t1   masked  all rows     gain  gain all
+  v7              0.6781     0.6823   0.6802    0.5054                   
+  v9              0.6786     0.6825   0.6806    0.5063                   
+  v10             0.6786     0.6816   0.6801    0.5042                   
+  v7+v9           0.6809     0.6848   0.6828    0.5105  +0.0023   +0.0043
+  v7+v10          0.6810     0.6844   0.6827    0.5099  +0.0025   +0.0045
+  v9+v10          0.6815     0.6845   0.6830    0.5101  +0.0024   +0.0039
+  v7+v9+v10       0.6820     0.6854   0.6837    0.5119  +0.0031   +0.0056
+  best pair v9+v10: masked 0.6830; triple adds +0.0007 masked, +0.0017 all rows

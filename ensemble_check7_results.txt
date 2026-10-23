@@ -1,0 +1,55 @@
+Ensemble check: v16a/b/c (train_multi.py) with v7, v9 and v13, fp32 PyTorch, GPU 1, steps >= 99
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+  v7: /home/jovyan/work/checkpoints/train_v7_maskw_a05_h128_e5_fullval_best.pt (step 64500)
+  v9: /home/jovyan/work/checkpoints/train_v9_maskw_a05_h128_e5_seed1_best.pt (step 51200)
+  v13: /home/jovyan/work/checkpoints/train_v13_lstm_maskw_a05_h128_e5_seed0_best.pt (step 64500)
+  v16a: /home/jovyan/work/checkpoints/train_v16a_drop01_wd_final.pt (step 64500)
+  v16b: /home/jovyan/work/checkpoints/train_v16b_alpha075_final.pt (step 64500)
+  v16c: /home/jovyan/work/checkpoints/train_v16c_3layers_final.pt (step 64500)
+  final weights of each model; v9's file is its best (step 51200): its trainer saved no final
+  all picked/scored on all 1,873 valid; held out = valid index % 4 == 0 (469 sequences)
+
+Sanity (tolerance 1e-05): all 18 checks pass
+  v7 full masked vs checkpoint: 0.6823789 vs 0.6823789 (-3.0e-15)
+  v7 full all rows vs checkpoint: 0.5097713 vs 0.5097713 (-9.8e-15)
+  v9 full masked vs checkpoint: 0.6826149 vs 0.6826149 (-2.4e-15)
+  v9 full all rows vs checkpoint: 0.5104333 vs 0.5104333 (-9.2e-15)
+  v13 full masked vs checkpoint: 0.6826542 vs 0.6826542 (-8.9e-16)
+  v13 full all rows vs checkpoint: 0.5079927 vs 0.5079927 (-8.4e-15)
+  v16a full masked vs checkpoint: 0.6841553 vs 0.6841553 (-1.4e-15)
+  v16a full all rows vs checkpoint: 0.5137468 vs 0.5137468 (-9.9e-15)
+  v16b full masked vs checkpoint: 0.6806714 vs 0.6806714 (-2.8e-15)
+  v16b full all rows vs checkpoint: 0.5089758 vs 0.5089758 (-9.1e-15)
+  v16c full masked vs checkpoint: 0.6815340 vs 0.6815340 (-3.4e-15)
+  v16c full all rows vs checkpoint: 0.5076116 vs 0.5076116 (-8.1e-15)
+  v7 held masked vs ensemble_check5: 0.6892062 vs 0.6892062 (+0.0e+00)
+  v7 held all vs ensemble_check5: 0.5228873 vs 0.5228873 (+0.0e+00)
+  v9 held masked vs ensemble_check5: 0.6888976 vs 0.6888976 (+0.0e+00)
+  v9 held all vs ensemble_check5: 0.5229594 vs 0.5229594 (+0.0e+00)
+  v7+v9 held masked vs ensemble_check5: 0.6915385 vs 0.6915385 (+0.0e+00)
+  v7+v9 held all vs ensemble_check5: 0.5278034 vs 0.5278034 (+0.0e+00)
+
+gain = subset minus its best member; vs v7+v9 = subset minus v7+v9
+  subset     held masked     gain vs v7+v9  held all     gain vs v7+v9 full masked     gain vs v7+v9
+  v7              0.6892           -0.0023    0.5229           -0.0049      0.6824           -0.0026
+  v9              0.6889           -0.0026    0.5230           -0.0048      0.6826           -0.0023
+  v13             0.6889           -0.0026    0.5210           -0.0068      0.6827           -0.0023
+  v16a            0.6875           -0.0040    0.5256           -0.0022      0.6842           -0.0008
+  v16b            0.6834           -0.0081    0.5183           -0.0096      0.6807           -0.0043
+  v16c            0.6844           -0.0071    0.5169           -0.0109      0.6815           -0.0034
+  v7+v9           0.6915  +0.0023  +0.0000    0.5278  +0.0048  +0.0000      0.6850  +0.0023  +0.0000
+  v7+v16a         0.6900  +0.0008  -0.0015    0.5275  +0.0019  -0.0003      0.6849  +0.0007  -0.0001
+  v7+v16b         0.6888  -0.0004  -0.0027    0.5252  +0.0023  -0.0026      0.6840  +0.0016  -0.0010
+  v9+v16a         0.6903  +0.0014  -0.0012    0.5281  +0.0025  +0.0003      0.6853  +0.0012  +0.0004
+  v9+v16b         0.6891  +0.0002  -0.0024    0.5260  +0.0031  -0.0018      0.6844  +0.0018  -0.0006
+  v16a+v16b       0.6875  -0.0001  -0.0041    0.5258  +0.0002  -0.0020      0.6844  +0.0002  -0.0006
+  v7+v13          0.6923  +0.0031  +0.0008    0.5283  +0.0054  +0.0005      0.6856  +0.0030  +0.0007
+  v16a+v13        0.6910  +0.0021  -0.0005    0.5287  +0.0031  +0.0009      0.6859  +0.0017  +0.0009
+
+Best pair on the 469 masked: v7+v13 0.6923, +0.0008 vs v7+v9 (0.6915); all 1,873 masked 0.6856, +0.0007 vs v7+v9 (0.6850); held all rows +0.0005
+
+Residual correlation (y - p, both clipped) on the scored rows of the 469; lower = more diverse
+  pair            t0      t1    mean | |y|-weighted t0      t1    mean
+  v16a-v7     0.9863  0.9863  0.9863 |          0.9913  0.9911  0.9912
+  v16a-v9     0.9827  0.9838  0.9832 |          0.9882  0.9892  0.9887
+  v7-v9       0.9789  0.9793  0.9791 |          0.9866  0.9867  0.9867

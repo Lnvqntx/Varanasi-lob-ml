@@ -1,0 +1,32 @@
+Ensemble check on the 469 held-out valid sequences (index % 4 == 0, steps >= 99), fp32 PyTorch, GPU 0
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+  v11b: /home/jovyan/work/checkpoints/train_v11_maskw_a05_adv_h128_e5_seed0_best.pt (step 38400)
+  v11f: /home/jovyan/work/checkpoints/train_v11_maskw_a05_adv_h128_e5_seed0_final.pt (step 73200)
+  v12b: /home/jovyan/work/checkpoints/train_v12_maskw_a05_adv_h128_e5_seed1_best.pt (step 64000)
+  v12f: /home/jovyan/work/checkpoints/train_v12_maskw_a05_adv_h128_e5_seed1_final.pt (step 73200)
+  v7: /home/jovyan/work/checkpoints/train_v7_maskw_a05_h128_e5_fullval_best.pt (step 64500)
+  v9: /home/jovyan/work/checkpoints/train_v9_maskw_a05_h128_e5_seed1_best.pt (step 51200)
+  v11/v12 trained on train + the other 1,404 valid sequences; their 'best' (b) was picked on these 469
+  sequences, so it is optimistic; final (f) is the end of epoch 5. v7/v9 picked on all 1,873 valid.
+
+Single-model sanity (tolerance 0.0005): v11/v12 vs the held-out score in the checkpoint, v7/v9 vs ensemble_check4
+  v11b: 0.687676 vs 0.687676 (-0.000000)
+  v11f: 0.684852 vs 0.684852 (-0.000000)
+  v12b: 0.691586 vs 0.691586 (-0.000000)
+  v12f: 0.690874 vs 0.690874 (-0.000000)
+  v7: 0.689206 vs 0.689200 (+0.000006)
+  v9: 0.688898 vs 0.688900 (-0.000002)
+
+gain = pair minus its better member
+  subset      masked t0  masked t1   masked  all rows     gain  gain all
+  v11b           0.6770     0.6983   0.6877    0.5163                   
+  v12b           0.6798     0.7034   0.6916    0.5276                   
+  v11b+v12b      0.6817     0.7042   0.6930    0.5284  +0.0014   +0.0009
+  v11f           0.6707     0.6990   0.6849    0.5231                   
+  v12f           0.6788     0.7029   0.6909    0.5277                   
+  v11f+v12f      0.6774     0.7033   0.6903    0.5302  -0.0006   +0.0024
+  v7             0.6770     0.7014   0.6892    0.5229                   
+  v9             0.6775     0.7003   0.6889    0.5230                   
+  v7+v9          0.6799     0.7032   0.6915    0.5278  +0.0023   +0.0048
+  v11b+v12b vs v7+v9: masked +0.0014, all rows +0.0006
+  v11f+v12f vs v7+v9: masked -0.0012, all rows +0.0024

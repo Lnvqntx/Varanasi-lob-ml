@@ -23,7 +23,7 @@ Wunder Fund (a high-frequency trading firm) gives anonymized real market data fr
 
 **Limits:** 1 vCPU, 16 GB RAM, no GPU, no internet, 60 minutes for the whole test set (39.4M rows, so about 90 microseconds per row), 20 MB zip, deterministic output. 5 submissions per day per team.
 
-**Dates:** start Sep 11, team deadline Nov 1 (23:59 UTC), last submission Nov 15, winners Dec 1. Prize pool $13,600 (1st $5,000). Top 8 must pass verification (inference code, training code with fixed seeds, 2-8 page report, code review call, internal-use license).
+**Dates:** start Sep 11, team deadline Nov 1 (23:59 UTC), last submission Nov 15, winners Dec 1. Prize pool $13,600, paid to the **top 8 on the private leaderboard** ($5,000 / 2,500 / 1,700 / 1,300 / 1,000 / 800 / 700 / 600). Top 8 must pass verification within 7 days of the preliminary results (inference code, training code with fixed seeds, 2-8 page report, 30-60 minute code-review call, internal-use license).
 
 **Data:** train 10,607 sequences (212M rows), valid 1,873 sequences (37.5M rows) plus a separate validation mask. Test: 1,970 sequences (39.4M rows), mask hidden. The provided starter baseline is a stateful GRU scoring **0.617052** on the full validation set.
 
@@ -31,6 +31,7 @@ Wunder Fund (a high-frequency trading firm) gives anonymized real market data fr
 - The supplied validation set and mask are "one useful validation setup based on a selected subset of moments". The test mask is hidden and may select different moments, so predictions must be reliable at all required moments.
 - A strong score on the visible validation subset does not guarantee a strong test score; there is a "private final test".
 - Only the provided train and valid data may be used for training; open-source pre-trained models are allowed if they contain no external market data.
+- Read on Oct 19 (rules and timeline pages): the final ranking is the **Private Leaderboard**. Near the end the team leader selects some previously submitted and scored solutions, which are re-scored on the Final Dataset. Ties go to the earlier submission. So every candidate for the final choice must already have been submitted and scored before Nov 15.
 
 ---
 
@@ -50,11 +51,11 @@ Rules we agreed with the machine owner and follow:
 - Everything lives in `~/work`. Packages are installed only in our own virtualenv, never in the shared base environment.
 - Check `nvidia-smi` before every GPU job. Keep GPU memory small (our jobs use about 1.8 GB).
 - Long jobs run with `nohup` from the terminal and log to files (the browser tab can be closed).
-- Never store passwords or tokens in files on the shared machine. GitHub pushes use a token cached in memory only (`git config credential.helper 'cache --timeout=1800'`).
+- Never store passwords or tokens in files on the shared machine. GitHub pushes: username and a personal access token are typed at the prompt each time (the in-memory cache expires and the login is shared, so the token is never saved).
 - One CPU core (core 31) is used for timing benchmarks via `taskset`, with GPUs hidden (`CUDA_VISIBLE_DEVICES=`), to mimic the competition.
 
 Rules we agreed inside the team (from Oct 18, details in `EXPERIMENTS.md`):
-- One GPU each: GPU 0 = Lnvqntx, GPU 1 = Mukesh, GPU 2 = Tejas, GPU 3 spare. Check `nvidia-smi` first.
+- **One training job at a time for the whole team** (since Oct 19). Training reads about 70 GB from a single hard disk, so two jobs, even on two different GPUs, both fall to about 3 steps/s (section 3, Days 5-7, step 5). Check `nvidia-smi` and tell the group before launching. GPU 0 is the default.
 - Every training run is launched with `nohup`, a unique `--name`, and a log file, and is added to the runs table in `EXPERIMENTS.md`.
 - Nobody types in a terminal tab where someone else's job is printing.
 - The group is told before a leaderboard submission is used (5 per day for the whole team).
@@ -235,6 +236,106 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 - The top 10 are within 0.003 of each other. We are about 0.0168 behind rank 8 and 0.0193 behind rank 1. Around our position, +0.001 is worth roughly 40-50 places.
 - Several teams have 100-183 submissions; we have 3. The final ranking probably uses different test data from the public board, so heavy tuning against the public board may not hold. We have not tuned to it.
 
+### Days 5-7 (Oct 19-21): the mask, weight decay, and where the error sits
+
+By Oct 19 the plain recipe was stuck near 0.680 on valid, so these days went into ideas that change what the model learns, not more seeds. Every run is in `EXPERIMENTS.md`.
+
+**1. Rules we had not read closely (Oct 19)**
+- Prizes go to the top 8 on the **private** leaderboard. The final ranking is the Private Leaderboard; the team leader selects some previously submitted and scored solutions for re-scoring on the Final Dataset; ties go to the earlier submission. Every final candidate must therefore be submitted and scored before Nov 15.
+- The top 8 deliver code, a report, a review call and a license within 7 days of the preliminary results (section 1).
+
+**2. Is the mask predictable? (`mask_gru.py`)**
+- The valid `is_scored` mask picks about 9.47% of rows. A small mask GRU (1 layer, hidden 64, causal features only) predicts it with AUC 0.941 (within a sequence 0.936) on 469 valid sequences it never saw (valid index % 4 == 0). The top decile of predicted probability holds 65.7% of the scored rows, and the mean predicted p is 9.35% against a true 9.19%.
+- The train set has no mask, so we predicted p for every train row (`train_maskp.npy`, mean 0.104) and for valid (`valid_maskp.npy`, mean 0.0947). The caches are not in git.
+
+**3. Mask-weighted loss (`train_v2m.py`, runs v7 to v10)**
+The loss weight is multiplied by m = alpha + (1 - alpha) * min(p / mean_p, 20). All runs: hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300`.
+
+| run | setup | best / final valid (all 1,873) | 469 held-out | all rows >= 99 (full valid) |
+|---|---|---|---|---|
+| v4 | plain, seed 0 | 0.6788 / 0.6778 | 0.6845 | 0.5096 |
+| v7 | alpha 0.5, seed 0 | 0.6824 / 0.6824 | 0.6892 | 0.5098 |
+| v8c | alpha 0.0 (weight proportional to p) | 0.6811 / 0.6806 | | 0.5007 |
+| v9 | alpha 0.5, seed 1 | 0.6826 / 0.6820 | 0.6889 | |
+| v10 | alpha 0.5, seed 2 | | 0.6863 | |
+
+- alpha 0.5 gives +0.0036 over v4 at the same seed (seed noise is about 0.0013) and +0.0028 on average over three seeds. alpha 0.0 is worse and loses 0.0089 on all rows.
+- The mask GRU never saw the 469 held-out sequences, and v7 still gains +0.0047 there, so the gain is not leakage.
+- The effect is in the training loss, not in the output. Scaling v7+v9's predictions by the mask probability afterwards (`calib_check.py`) lowered the score for every setting (mildest, (p/mean_p)^0.1: -0.0027), because the metric already ignores unscored rows.
+
+**4. Leaderboard, Oct 19**
+`submission_v7_int8.zip` alone scored **0.65367** (platform run 22m21s). The v7+v9 two-model int8 ensemble scored **0.65542**, rank 372 of 5,057. The valid gain of the v7+v9 pair carried over at about 67% (v4+v5 carried 46%).
+
+**5. One training job at a time**
+- Two jobs together, even on two different GPUs, each ran at about 3 steps/s instead of about 17. The data (about 64-70 GB) is read from a single 7200 rpm disk (about 82 MB/s, which is about 16 steps/s), and the container's 30 GB memory limit includes the page cache. The GPU alone would do 107-119 steps/s, so training is disk-bound. Heavy validation passes slow a running job the same way. We lost about 10 minutes once by running an ensemble check next to a training run.
+- Before Oct 19 the training scripts forced GPU 0 whatever `CUDA_VISIBLE_DEVICES` said (a job started on GPU 1 still ran on GPU 0). Fixed with `os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")`.
+- `train_multi.py` (Oct 20) trains K models from the same stream of batches in one process, so the disk is read once. K = 3 takes about the same wall time as one run (about 100 minutes). Checked bit for bit against `train_v2m.py` and `train_v5m.py` (K = 1 reproduces their loss lines, identical specs give identical models). Models in one run share the batch order, which matters for ensembles (step 9).
+
+**6. Ideas that did not work (each measured)**
+
+| idea | result | verdict |
+|---|---|---|
+| scale predictions by mask probability | every setting lowers the score (best -0.0027) | no |
+| train on train + valid (`train_v3m.py`, v11 / v12) | 0.6849 / 0.6909 on the 469 against 0.6892 / 0.6889 for v7 / v9; the pair 0.6903 against 0.6915 | no |
+| LSTM instead of GRU (`train_v4m.py`, v13) | 0.6827, equal to the GRU; v7+v13 only +0.0008 over v7+v9; residual correlation 0.974 against 0.979 | no |
+| GBM correction of the residual on 216 extra rolling features | -0.0016 out of fold, no signal | no |
+| auxiliary heads predicting shifted targets at +50, +200, -50, -200 steps (`train_v5m.py`, v14) | 0.6802 against 0.6824 | no |
+| alpha 0.75 (v16b) | 0.6807 | worse |
+| 3 GRU layers (v16c) | 0.6815, and 22% slower | no |
+| dropout alone, weight decay unchanged (v17b) | 0.6821 | no |
+| EMA of the weights (v20a) | 0.6857, equal to its raw weights (its early +0.0093 vanishes as the learning rate decays to zero) | no |
+| learning rate 2e-3 (v20b) / hidden 192 (v20c) | 0.6841 / 0.6845 | no |
+| three-model ensemble | 0.6929 on the 469 but about 48-51 minutes projected on the platform | too risky |
+
+**7. Weight decay was the one knob that worked**
+The first weight-decay run (v16a, wd 0.05 with dropout 0.1) was ahead of v7 from mid-run on. Replicates and a sweep followed (AdamW; the old default was 0.01). Dropout turned out to do nothing; weight decay does all of it.
+
+| run | wd | dropout | data seed | final valid | all rows >= 99 |
+|---|---|---|---|---|---|
+| v7 / v9 / v13 (baselines) | 0.01 | 0 | 0 or 1 | 0.6824 / 0.6820 / 0.6827 | about 0.510 |
+| v16a | 0.05 | 0.1 | 0 | 0.6842 | 0.5137 |
+| v17a | 0.05 | 0.2 | 0 | 0.6846 | 0.5128 |
+| v17b | 0.01 | 0.1 | 0 | 0.6821 | 0.5086 |
+| v17c (replicate of v16a, init seed 1) | 0.05 | 0.1 | 0 | 0.6852 | 0.5140 |
+| v18a | 0.1 | 0 | 0 | 0.6848 | 0.5139 |
+| v18b | 0.3 | 0 | 0 | 0.6817 | 0.5085 |
+| **v18c** | **0.05** | 0 | 0 | **0.6857** | 0.5138 |
+| v19a | 0.1 | 0 | 1 | 0.6856 | 0.5144 |
+| v19b | 0.3 | 0 | 1 | 0.6822 | 0.5083 |
+| v19c | 0.05 | 0 | 1 | 0.6849 | 0.5134 |
+
+- Six runs with wd 0.05-0.1 land at 0.6842-0.6857 (about +0.0027 over the baselines) on both data seeds. wd 0.3 is too strong and loses the gain. The best single model (v18c, 0.6857) already equals the v7+v9 pair (0.6850) and takes 21 instead of 34 minutes on the platform.
+
+**8. Where the error sits (analysis, no training)**
+- **Large targets:** the 11% of rows at the +-2 clip hold about 32% of the weight and 57% of the squared error. Rows with y > 0 hold 34% of the weight and 54% of the error. Quiet, tight-spread rows score only 0.43 and hold 64.5% of the error. The worst 10% of sequences score 0.20 (the rest 0.73). Step range and t0 against t1 do not matter.
+- **Targets are integer multiples of a per-sequence unit** (`target_structure.py`): every sequence has one of four units (0.125433, 0.241330, 0.468536, 0.656868; 398 / 347 / 431 / 697 valid sequences). t0 + t1 behaves like a cost (-1 unit on 47% of rows, -2 on 29%) and t0 - t1 like a direction. Autocorrelation is 0.976 at lag 1, 0.52 at lag 100 and 0.35 at lag 200, so the horizon is long-tailed (a few hundred steps). The anonymised price columns explain only about 4% of either target, so extra targets cannot be derived from them.
+- **The coarse-unit group (0.6569) is the weak one** (`unit_analysis.py`): it holds 47.7% of the metric weight and 66% of the weighted squared error and scores about 0.43 against 0.80 / 0.77 / 0.73 for the finer units. Per-unit rescaling gains only +0.0001, so it is not a calibration problem.
+- **The unit is easy to recognise** (`unit_probe.py`): from the first 20 steps a classifier gets 99.99% in cross-validation on train and 100% on all 1,873 valid sequences; from the first 99 steps 99.96% / 99.95%. The signal is in the level of a few volume-like and price columns. The generalist models therefore almost certainly know the unit already; an auxiliary unit label was not worth a run.
+- **In-group reference scores** on the 697 coarse valid sequences (`unit_group_eval.py`): v18c 0.4334, v19a 0.4332, v20a 0.4334, the pair v18c+v19a 0.4347 (all rows >= 99: about 0.269). Every generalist lands within 0.0003 of the others.
+
+**9. Weight-decay ensembles and the third leaderboard score**
+- The wd models are near-duplicates: residual correlations 0.989-0.993, even across data seeds, against 0.979 for v7-v9. So pairing them gains only about +0.0008 over the better member, and the gain of a pair comes mostly from its better single models.
+- Best cross-seed pair, `ensemble_check9.py`: **v18c + v19a**, 0.6867 on all 1,873 (+0.0018 over v7+v9) and 0.6938 on the 469 (+0.0022). Chosen as the best of 10 pairs, so slightly optimistic.
+- int8 build `submission_ens_v18cv19a_int8.zip` (338,570 bytes): int8 loss -0.000017 on the first 100 valid sequences, 114.0 us/row, projected 39.6 minutes on the platform (the v4+v5 pair was projected at 39.7 and took 34m16s).
+- **Leaderboard 0.65684, rank 302 of 5,111** (+0.00142 over v7+v9). 79% of the valid gain carried over, better than before. This is our current best and fallback final submission.
+- A bug caught by our own sanity check: `ensemble_check9.py` stopped because it compared the 469-sequence scores with full-valid reference values. The check was right and the scores were fine; the reference lookup was wrong. Lesson: fix the check, never loosen its tolerance.
+
+**10. Leaderboard on Oct 20 (read at 11:26 IST)**
+
+| rank | score |
+|---|---|
+| 1 | 0.67244 |
+| 8 | 0.67017 |
+| 25 | 0.66783 |
+| 50 | 0.66511 |
+| 150 | 0.66049 |
+| 302 (us, after step 9) | 0.65684 |
+
+The top 10 are within 0.0023 of each other. Near our score +0.001 is worth about 40 places. To reach the prize line we need about +0.013.
+
+**11. Coarse-unit specialist test (v21, running at the time of writing)**
+`train_multi.py --unit-filter 0.6569` trains only on the coarse-unit train sequences (4,432 of 10,307, 43.0%) and evaluates on the 697 coarse valid sequences. Three models (wd 0.05, wd 0.1, wd 0.05 with lr 5e-4), 44,320 steps each, expected to finish about 02:20 IST on Oct 21. The question: does a specialist beat 0.4334 (the generalist in-group score) by about 0.01? If yes, a router (the unit can be read from the first 20-99 steps, which are never scored) could send each sequence to its specialist at no extra inference cost. If no, we stop. The result goes in `EXPERIMENTS.md`.
+
 ---
 
 ## 4. Results so far
@@ -243,11 +344,15 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 |---|---|---|
 | starter `baseline_submission.zip` (calibration) | 0.617052 | 0.59353 |
 | `submission_v2_int8_std.zip` (single GRU-128, int8, 177 KB) | 0.679703 (full valid, official scorer) | 0.65200 |
-| `submission_ens_v4v5_int8.zip` (two GRU-128, int8, 341 KB) | 0.6822 masked (fp32 average on full valid) | **0.65315** |
+| `submission_ens_v4v5_int8.zip` (two GRU-128, int8, 341 KB) | 0.6822 masked (fp32 average on full valid) | 0.65315 |
+| `submission_v7_int8.zip` (single GRU-128, mask-weighted loss) | 0.6824 | 0.65367 |
+| `submission_ens_v7v9_int8.zip` (two mask-weighted GRU-128) | 0.6850 (fp32 average, full valid) | 0.65542 |
+| `submission_ens_v18cv19a_int8.zip` (two GRU-128 with weight decay 0.05 / 0.1, data seeds 0 and 1, 339 KB) | 0.6867 (fp32 average, full valid) | **0.65684** (current best and fallback final) |
 
-- Our rank: about 532 after the first submission (Oct 17), 543-547 during Oct 18, **486 of 5,016** after the ensemble.
+- Our rank: about 532 after the first submission (Oct 17), 543-547 during Oct 18, 486 of 5,016 after the first ensemble, 372 of 5,057 after the mask-weighted pair (Oct 19), **302 of 5,111** after the weight-decay pair (Oct 20).
 - Why the leaderboard (0.65) is below local (0.68): the baseline drops by almost the same amount (0.617 to 0.5935), so the test set is simply harder than valid for everyone. It is not caused by checkpoint selection or by tuning to the valid mask (section 3, steps 1, 3 and 4).
-- Gains on valid shrink on the test set: the ensemble gave +0.0025 locally and +0.00115 on the leaderboard.
+- Gains on valid shrink on the test set: the first ensemble gave +0.0025 locally and +0.00115 on the leaderboard (46%); v7+v9 kept about 67%; the weight-decay pair kept 79% (+0.0018 locally, +0.00142 on the leaderboard).
+- Only submitted and scored solutions can be picked as the final choice (section 1), so each real candidate is submitted once, after the team is told.
 
 ---
 
@@ -265,19 +370,30 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 - Instructions I gave for the seed runs guessed the checkpoint file names (`..._fullval_best.pt`); the actual file for v5 was `train_v5_h128_e5_seed1_best.pt`, and Claude Code had to find it. Check `ls ~/work/checkpoints` before naming files.
 - `export_v2.py --int8` also needs `--cell matmul`; the reproduce outline had left it out.
 - Ensembling two models in one ONNX graph did not cut the per-row cost (114 vs 2 x 60 us). Do not assume a shared graph is cheaper; time it.
+- Running two training jobs at once (even on two GPUs) made both about 5 times slower, because the data sits on one hard disk. I first said both would finish by 10 PM, which was wrong. Later I again asked for an ensemble check to run next to a training job and it cost about 10 minutes. Anything that reads the data waits until training is done.
+- The training scripts forced GPU 0 whatever `CUDA_VISIBLE_DEVICES` said, which is why one teammate's "GPU 1" run slowed ours down. Check `nvidia-smi` memory on the GPU you meant after launching.
+- I first thought three models might fit in 60 minutes (it is about 48-51), then judged it too risky; a timeout scores zero. Keep two models unless a platform-measured time is under about 45 minutes.
+- Gains selected as "best of N" are slightly optimistic (the weight-decay pair was the best of 10). The leaderboard check showed 79% carried over, but plan for 50-70%.
+- A single run on 469 sequences cannot resolve differences below about 0.002; v16a looked behind v7 on the 469 and ahead on the other 1,404 sequences, and only the replicate (v17c) settled it. Replicate before believing a gain below 0.003.
+- A sanity check that fails is information. `ensemble_check9.py` stopped on a reference-value mismatch; the models were fine and the check's lookup was wrong. Fix the check, never raise its tolerance.
+- Shell detail: in a waiter script `echo "$(date) ... $?"` resets `$?` before it is printed; store `$?` in a variable first.
+- `ps -eo args` truncates long commands and `pgrep -f` also matches the wrapper shell; find the python PID once with `ps -ww -eo pid,comm,args` and wait with `kill -0 PID`.
+- v9 was run with a trainer that saved only the best checkpoint, so it has no `_final.pt`; later checks use its best (step 51,200).
+- A `git push` was rejected once after a commit made from another tab; `git pull --rebase` and then `git push` fixed it. Never force-push.
 
 ---
 
 ## 6. Next steps
 
-1. Is the valid mask predictable from the features? Train a small classifier on valid to predict `is_scored` from the order-book rows. If it works, weight or focus training on the rows the test mask probably picks. Cheap, and the biggest idea we have with a chance of a large gain.
-2. Train on train + valid together with a fixed 5 epochs (about 19% more data). Cannot be checked locally, only on the leaderboard.
-3. Try a loss closer to the metric (a differentiable Pearson loss).
-4. Try a different architecture (for example a convolutional front end or LSTM) as a stronger or more diverse ensemble member, within the 60-minute CPU budget (an ensemble of two GRU-128 models already takes about 40 minutes).
-5. Keep submissions few and meaningful (3 used so far including the baseline); tell the team before each one.
-6. Check the competition's timeline and prizes pages for how the final ranking works and how deep the prize list goes.
-7. Keep training code seeded and reproducible (required for prize verification) and prepare the 2-8 page technical report.
-8. Confirm the team is registered on the competition site (deadline Nov 1) and add Mukesh and Tejas as repo collaborators.
+Done since Oct 18 (kept for the record): the mask is predictable and mask weighting works; train + valid, LSTM, auxiliary targets and the other ideas in section 3 (Days 5-7, step 6) did not help; the rules and prize pages were read (section 1).
+
+1. **Coarse-unit specialist** (v21, running): does a model trained only on the 0.6569-unit sequences beat the generalists' 0.4334 in that group by about 0.01? If yes, build the router (unit recognised from the first 20-99 steps, at no extra inference cost) and test it on the full valid set before spending a submission. If no, drop it.
+2. Keep the weight-decay recipe (wd 0.05-0.1, no dropout, mask weighting alpha 0.5) and train more members on **different data seeds** to build the best two-model pair (members on one data seed are near-duplicates, residual correlation 0.99). A third model needs a platform-measured time under about 45 minutes before it is submitted.
+3. Any single-model idea is tested with `train_multi.py` (three variants per run, about 100 minutes), compared with v18c (0.6857) and replicated before it is believed.
+4. Submit only real improvements (at least +0.0015 over the current pair on all valid and not lower on the 469), one at a time, after telling the team. Used so far: 6 submissions including the baseline calibration.
+5. Keep training code seeded and reproducible (required for prize verification). Prepare the 2-8 page technical report and the clean training/inference package well before Nov 15.
+6. Check that the team is registered on the competition site (merge deadline Nov 1) and that Mukesh and Tejas are collaborators on this repo.
+7. Back up the checkpoints and submission zips of the final candidates off the university machine.
 
 ---
 
@@ -299,7 +415,20 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 | `ensemble_check2.py`, `ensemble_check2_results.txt` | model averaging check with v6 (all subsets of four) |
 | `export_ens.py`, `solution_ens.py` | two-model int8 ensemble in one ONNX graph and its `solution.py` |
 | `check_ens.py`, `bench_ens.py` | correctness check against the fp32 average and timing against the single model |
-| `EXPERIMENTS.md` | team rules, runs table, open questions |
+| `mask_gru.py` | small GRU that predicts the valid `is_scored` mask; makes `train_maskp.npy` / `valid_maskp.npy` |
+| `train_v2m.py` | GRU training with the mask-weighted loss (`--mask-p`, `--alpha`) |
+| `train_v3m.py` | same, optionally also trained on valid (`--add-valid`); no gain |
+| `train_v4m.py` | adds `--arch lstm`; no gain |
+| `train_v5m.py`, `strip_aux.py`, `aux_checks.py` | auxiliary shifted-target heads (`--aux`, `--aux-weight`), converter to a normal 2-output checkpoint, alignment checks; no gain |
+| `train_multi.py` | trains K models from one stream of batches (per-model seed, alpha, layers, dropout, weight decay, lr, hidden size, EMA, auxiliary heads, and `--unit-filter` for specialists) |
+| `export_v4.py`, `solution_v4.py`, `lstm_export_check.py` | LSTM export and its checks |
+| `calib_check.py`, `calib_check_results.txt` | scaling by mask probability (no gain) |
+| `ensemble_check3.py` to `ensemble_check9.py` (+ `_results.txt`) | ensemble and pair checks on the 469 held-out and all 1,873 valid sequences |
+| `io_bench.py` | disk read speed test (why training is disk-bound) |
+| `error_analysis.py`, `probe_features.py`, `residual_probe.py` | where the loss sits; GBM residual probe (no signal) |
+| `target_structure.py` | targets are integer multiples of a per-sequence unit; autocorrelation; relation to prices |
+| `unit_analysis.py`, `unit_probe.py`, `unit_labels.py`, `unit_group_eval.py` | per-unit score breakdown, unit recognition from the first steps, unit labels, in-group scores of the generalists |
+| `EXPERIMENTS.md` | team rules, runs table, open questions, lessons |
 
 ## 8. How to reproduce (outline)
 
@@ -313,3 +442,11 @@ python run_full_valid.py <path>.zip /tmp/valid_check      # full validation with
 ```
 
 The v4, v5 and v6 recipe is hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300 --eval-every 12800`, seeds 0, 1 and 2. The ensemble zip is built with `export_ens.py` from the v4 and v5 checkpoints. Check each script's `--help` for exact options.
+
+**Current best recipe (weight decay, Oct 20).** Hidden 128, 2 layers, no dropout, 5 epochs, mask weighting alpha 0.5 (needs `~/work/cache/train_maskp.npy` from `mask_gru.py`), AdamW lr 1e-3 with weight decay 0.05 (or 0.1), global seed and data seed 0 for one member and 1 for the other. The two members of the submitted pair came from `train_multi.py` runs (v18c with weight decay 0.05 and data seed 0, v19a with weight decay 0.1 and data seed 1). The pair is exported with `export_ens.py` and `solution_ens.py` from the two `_final.pt` checkpoints, always with `--int8 --cell matmul`.
+
+```
+CUDA_VISIBLE_DEVICES=0 nohup python train_multi.py --hidden 128 --epochs 5 --n-val 1873 --n-holdout 300 --eval-every 12800 --seed 0 --data-seed 0 --alpha 0.5 --mask-p ~/work/cache/train_maskp.npy --models "name1:0:gru::0:wd=0.05,name2:0:gru::0:wd=0.1" > ~/work/train_vN.nohup.out 2>&1 &
+```
+
+The exact `--models` spec syntax is in the docstring of `train_multi.py`. Run one training job at a time, and do not read the data (ensemble checks, benchmarks on valid) while it runs.

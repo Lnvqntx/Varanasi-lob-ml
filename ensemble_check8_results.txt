@@ -1,0 +1,50 @@
+Ensemble check: weight-decay 0.05 models v16a, v17a, v17c with v7 and v9, fp32 PyTorch, GPU 0, steps >= 99
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+  v7: /home/jovyan/work/checkpoints/train_v7_maskw_a05_h128_e5_fullval_best.pt (step 64500)
+  v9: /home/jovyan/work/checkpoints/train_v9_maskw_a05_h128_e5_seed1_best.pt (step 51200)
+  v16a: /home/jovyan/work/checkpoints/train_v16a_drop01_wd_final.pt (step 64500)
+  v17a: /home/jovyan/work/checkpoints/train_v17a_drop02_wd05_final.pt (step 64500)
+  v17c: /home/jovyan/work/checkpoints/train_v17c_drop01_wd05_initseed1_final.pt (step 64500)
+  final weights, except v9 (its best, step 51200: its trainer saved no final; the v7+v9 reference uses it)
+  held out = valid index % 4 == 0 (469 sequences)
+
+Sanity (tolerance 1e-05): all 16 checks pass
+  v7 full masked vs checkpoint: 0.6823789 vs 0.6823789 (-3.0e-15)
+  v7 full all rows vs checkpoint: 0.5097713 vs 0.5097713 (-9.8e-15)
+  v9 full masked vs checkpoint: 0.6826149 vs 0.6826149 (-2.4e-15)
+  v9 full all rows vs checkpoint: 0.5104333 vs 0.5104333 (-9.2e-15)
+  v16a full masked vs checkpoint: 0.6841553 vs 0.6841553 (-1.4e-15)
+  v16a full all rows vs checkpoint: 0.5137468 vs 0.5137468 (-9.9e-15)
+  v17a full masked vs checkpoint: 0.6845627 vs 0.6845627 (-4.3e-15)
+  v17a full all rows vs checkpoint: 0.5127553 vs 0.5127553 (-1.0e-14)
+  v17c full masked vs checkpoint: 0.6851582 vs 0.6851582 (-2.0e-15)
+  v17c full all rows vs checkpoint: 0.5139818 vs 0.5139818 (-9.8e-15)
+  v7 held masked vs ensemble_check5: 0.6892062 vs 0.6892062 (+0.0e+00)
+  v7 held all vs ensemble_check5: 0.5228873 vs 0.5228873 (+0.0e+00)
+  v9 held masked vs ensemble_check5: 0.6888976 vs 0.6888976 (+0.0e+00)
+  v9 held all vs ensemble_check5: 0.5229594 vs 0.5229594 (+0.0e+00)
+  v7+v9 held masked vs ensemble_check5: 0.6915385 vs 0.6915385 (+0.0e+00)
+  v7+v9 held all vs ensemble_check5: 0.5278034 vs 0.5278034 (+0.0e+00)
+
+gain = subset minus its best member; vs v7+v9 = subset minus v7+v9; the triple is a reference only
+  subset          held masked     gain vs v7+v9  held all     gain vs v7+v9 full masked     gain vs v7+v9  full all
+  v7                   0.6892           -0.0023    0.5229           -0.0049      0.6824           -0.0026    0.5098
+  v9                   0.6889           -0.0026    0.5230           -0.0048      0.6826           -0.0023    0.5104
+  v16a                 0.6875           -0.0040    0.5256           -0.0022      0.6842           -0.0008    0.5137
+  v17a                 0.6909           -0.0006    0.5256           -0.0022      0.6846           -0.0004    0.5128
+  v17c                 0.6911           -0.0004    0.5271           -0.0007      0.6852           +0.0002    0.5140
+  v16a+v17c            0.6906  -0.0005  -0.0009    0.5289  +0.0018  +0.0010      0.6858  +0.0006  +0.0008    0.5162
+  v16a+v17a            0.6902  -0.0007  -0.0013    0.5276  +0.0020  -0.0002      0.6852  +0.0007  +0.0003    0.5151
+  v17a+v17c            0.6921  +0.0010  +0.0006    0.5287  +0.0016  +0.0009      0.6859  +0.0008  +0.0010    0.5156
+  v16a+v17a+v17c       0.6914  +0.0002  -0.0002    0.5291  +0.0020  +0.0013      0.6860  +0.0008  +0.0010    0.5163
+  v7+v9                0.6915  +0.0023  +0.0000    0.5278  +0.0048  +0.0000      0.6850  +0.0023  +0.0000    0.5149
+
+Best wd pair (on all 1,873 masked): v17a+v17c 0.6859, +0.0010 vs v7+v9 (0.6850); 469 masked 0.6921, +0.0006 vs v7+v9 (0.6915); 469 all rows +0.0009
+Build condition (>= +0.0015 on all 1,873 masked AND >= 0 on the 469 masked): +0.0010, +0.0006 -> SKIP the build
+
+Residual correlation (y - p, both clipped) on the scored rows of the 469; lower = more diverse
+  pair            t0      t1    mean | |y|-weighted t0      t1    mean
+  v16a-v17c   0.9901  0.9906  0.9904 |          0.9927  0.9937  0.9932
+  v16a-v17a   0.9922  0.9926  0.9924 |          0.9942  0.9951  0.9947
+  v17a-v17c   0.9909  0.9908  0.9908 |          0.9943  0.9941  0.9942
+  v7-v9       0.9789  0.9793  0.9791 |          0.9866  0.9867  0.9867
