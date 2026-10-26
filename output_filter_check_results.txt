@@ -1,0 +1,54 @@
+Causal output filters on the v7+v9 valid predictions (/home/jovyan/work/calib_v7v9_pred_t0.npy, _t1; float16, 1873 x 19901 = steps 99..19999); targets / is_scored from /home/jovyan/work/cache/valid_targets.npy, /home/jovyan/work/cache/valid_is_scored.npy
+Metric: clip to [-2, 2], weights |y|, pooled over scored rows (3,528,273), mean of t0 and t1. 469 = valid index % 4 == 0 (469 sequences).
+
+Raw: all 1,873 0.6850 (t0 0.6807, t1 0.6892); 469 0.6915 (t0 0.6799, t1 0.7032)
+  reproduces 0.685 / 0.6915: YES
+
+Step-to-step noise (clipped values, consecutive steps inside each sequence, steps 100..19999)
+  t0: sd(p_t - p_t-1) 0.1988 vs sd(y_t - y_t-1) 0.2030 (ratio 0.980); on scored rows 0.1657 vs 0.1639; sd of levels p 0.5565, y 0.7863
+      lag-1 autocorrelation: predictions 0.9362, targets 0.9667; on scored rows 0.9790 vs 0.9834; share of steps where p changes by > 0.01: 0.833, y changes at all: 0.102
+  t1: sd(p_t - p_t-1) 0.1916 vs sd(y_t - y_t-1) 0.1971 (ratio 0.972); on scored rows 0.1586 vs 0.1580; sd of levels p 0.5675, y 0.7839
+      lag-1 autocorrelation: predictions 0.9430, targets 0.9684; on scored rows 0.9828 vs 0.9850; share of steps where p changes by > 0.01: 0.837, y changes at all: 0.099
+
+(a) Exponential smoothing p'_t = a p_t + (1 - a) p'_t-1, restarted at step 99 (both targets the same a)
+      a  all 1,873     gain      t0      t1       469     gain     gain even / odd                  gain by index % 4
+      1     0.6850  +0.0000  0.6807  0.6892    0.6915  +0.0000   +0.0000 / +0.0000   +0.0000 +0.0000 +0.0000 +0.0000
+    0.8     0.6845  -0.0005  0.6802  0.6887    0.6911  -0.0005   -0.0005 / -0.0005   -0.0005 -0.0005 -0.0005 -0.0005
+    0.6     0.6830  -0.0020  0.6788  0.6873    0.6896  -0.0019   -0.0020 / -0.0019   -0.0019 -0.0019 -0.0020 -0.0019
+    0.4     0.6795  -0.0054  0.6752  0.6838    0.6862  -0.0054   -0.0055 / -0.0054   -0.0054 -0.0054 -0.0057 -0.0054
+   0.25     0.6730  -0.0120  0.6686  0.6774    0.6797  -0.0119   -0.0121 / -0.0118   -0.0119 -0.0118 -0.0124 -0.0117
+   0.15     0.6621  -0.0228  0.6575  0.6668    0.6688  -0.0228   -0.0232 / -0.0225   -0.0228 -0.0227 -0.0236 -0.0224
+    0.1     0.6500  -0.0350  0.6451  0.6548    0.6564  -0.0351   -0.0356 / -0.0345   -0.0351 -0.0347 -0.0361 -0.0343
+
+Normal equations accumulated (184s); 25 regressors per target: constant, lags [0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144] of the same target and of the other target
+
+(b) learned filter, 2-fold CV (even / odd index): out-of-fold scores
+  all 1,873 0.6844 (gain -0.0006; t0 0.6803 -0.0004, t1 0.6885 -0.0007); 469 0.6904 (gain -0.0011)
+  fold 0 (937 test sequences): raw 0.6847 -> 0.6842, gain -0.0006
+  fold 1 (936 test sequences): raw 0.6851 -> 0.6850, gain -0.0001
+  t0 mean coefficients (fold sd): const +0.0166; own lags 0:+1.000(0.010) 1:+0.011(0.004) 2:+0.002(0.002) 3:-0.001(0.004) 5:-0.007(0.002) 8:-0.011(0.004) 13:-0.005(0.000) 21:-0.006(0.001) 34:-0.005(0.001) 55:-0.003(0.003) 89:-0.000(0.002) 144:+0.008(0.001)
+     other target lags 0:+0.031(0.000) 1:+0.007(0.004) 2:+0.006(0.002) 3:+0.007(0.001) 5:-0.004(0.002) 8:-0.004(0.002) 13:-0.001(0.001) 21:+0.006(0.002) 34:+0.011(0.001) 55:+0.009(0.001) 89:+0.009(0.002) 144:+0.005(0.002)
+  t1 mean coefficients (fold sd): const -0.0119; own lags 0:+1.000(0.010) 1:-0.002(0.001) 2:-0.011(0.005) 3:-0.010(0.007) 5:-0.003(0.003) 8:-0.002(0.002) 13:-0.004(0.001) 21:-0.005(0.003) 34:-0.005(0.003) 55:-0.004(0.002) 89:-0.005(0.002) 144:+0.000(0.003)
+     other target lags 0:+0.030(0.002) 1:-0.008(0.005) 2:-0.002(0.004) 3:+0.002(0.000) 5:+0.006(0.003) 8:-0.001(0.001) 13:-0.000(0.002) 21:+0.006(0.001) 34:+0.008(0.000) 55:+0.010(0.001) 89:+0.007(0.001) 144:+0.003(0.002)
+
+(c) learned filter, 4-fold CV (index % 4): out-of-fold scores
+  all 1,873 0.6847 (gain -0.0003; t0 0.6806 -0.0001, t1 0.6887 -0.0004); 469 0.6907 (gain -0.0009)
+  fold 0 (469 test sequences): raw 0.6915 -> 0.6907, gain -0.0009
+  fold 1 (468 test sequences): raw 0.6832 -> 0.6831, gain -0.0001
+  fold 2 (468 test sequences): raw 0.6783 -> 0.6782, gain -0.0001
+  fold 3 (468 test sequences): raw 0.6865 -> 0.6866, gain +0.0001
+  t0 mean coefficients (fold sd): const +0.0167; own lags 0:+1.000(0.005) 1:+0.011(0.002) 2:+0.002(0.001) 3:-0.001(0.002) 5:-0.007(0.001) 8:-0.011(0.002) 13:-0.005(0.000) 21:-0.006(0.000) 34:-0.005(0.001) 55:-0.003(0.001) 89:-0.000(0.002) 144:+0.008(0.004)
+     other target lags 0:+0.031(0.002) 1:+0.007(0.002) 2:+0.006(0.001) 3:+0.007(0.001) 5:-0.004(0.001) 8:-0.004(0.001) 13:-0.001(0.000) 21:+0.006(0.001) 34:+0.011(0.001) 55:+0.009(0.000) 89:+0.009(0.001) 144:+0.005(0.004)
+  t1 mean coefficients (fold sd): const -0.0119; own lags 0:+1.000(0.004) 1:-0.002(0.001) 2:-0.011(0.002) 3:-0.010(0.002) 5:-0.003(0.001) 8:-0.002(0.001) 13:-0.004(0.001) 21:-0.005(0.001) 34:-0.005(0.002) 55:-0.004(0.001) 89:-0.005(0.001) 144:+0.000(0.002)
+     other target lags 0:+0.030(0.001) 1:-0.008(0.002) 2:-0.002(0.001) 3:+0.002(0.000) 5:+0.006(0.001) 8:-0.001(0.000) 13:-0.000(0.001) 21:+0.006(0.000) 34:+0.008(0.001) 55:+0.009(0.001) 89:+0.007(0.001) 144:+0.003(0.001)
+
+Verdict (pass = gain >= +0.002 on all 1,873, >= 0 on the 469, and > 0 in every fold; for (a) the folds are even / odd and index % 4, for (b) / (c) the CV folds):
+  a = 0.8                                            all -0.0005, 469 -0.0005, folds min -0.0005 / max -0.0005
+  a = 0.6                                            all -0.0020, 469 -0.0019, folds min -0.0020 / max -0.0019
+  a = 0.4                                            all -0.0054, 469 -0.0054, folds min -0.0057 / max -0.0054
+  a = 0.25                                           all -0.0120, 469 -0.0119, folds min -0.0124 / max -0.0117
+  a = 0.15                                           all -0.0228, 469 -0.0228, folds min -0.0236 / max -0.0224
+  a = 0.1                                            all -0.0350, 469 -0.0351, folds min -0.0361 / max -0.0343
+  (b) learned filter, 2-fold CV (even / odd index)   all -0.0006, 469 -0.0011, folds min -0.0006 / max -0.0001
+  (c) learned filter, 4-fold CV (index % 4)          all -0.0003, 469 -0.0009, folds min -0.0009 / max +0.0001
+  -> no filter gains +0.002 stably

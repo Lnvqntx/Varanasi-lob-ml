@@ -1,0 +1,99 @@
+Feature feasibility: first 200 train sequences x first 120 rows (24,000 rows), CPU, read-only
+Column names: make_cache.price_and_other_cols (parquet schema); model inputs: train_v5m.build_inputs with the v18c checkpoint's input stats
+
+=== 1. Structure of the 112 raw columns ===
+Group stats (values pooled over the group's columns). Bounds: Phi^-1(0.99) = 2.3263; Phi^-1(1 - 1e-7) = 5.1993 (sklearn QuantileTransformer's clip; the cache fill value is 5.19921875)
+  group                          mean    sd in-seq sd     min    max |x|>2.32 |x|=fill rows changed all cols change together
+  i0 bid price-like p0-p10      -0.25  0.88     0.080  -2.340  2.193    0.017    0.000         0.21                    1.000
+  i0 ask price-like p11-p21      0.25  0.99     0.061  -2.329  2.334    0.019    0.000         0.21                    1.000
+  i0 bid volume-like v0-v10      0.26  1.09     0.309  -2.371  2.402    0.020    0.000         0.64                    0.797
+  i0 ask volume-like v11-v21    -0.32  0.88     0.288  -2.350  2.326    0.010    0.000         0.67                    0.854
+  i0 trade price dp0-3          -0.02  0.97     0.531  -2.336  2.359    0.018    0.000         0.33                    0.998
+  i0 trade volume dv0-3          0.01  0.69     0.560  -2.496  2.648    0.018    0.000         0.19                    0.999
+  i1 bid price-like p0-p10      -0.25  0.89     0.061  -2.343  2.161    0.025    0.000         0.10                    1.000
+  i1 ask price-like p11-p21      0.25  1.01     0.052  -2.331  2.338    0.025    0.000         0.10                    1.000
+  i1 bid volume-like v0-v10      0.25  0.84     0.207  -2.336  2.330    0.006    0.000         0.35                    0.914
+  i1 ask volume-like v11-v21    -0.15  0.72     0.223  -2.340  2.330    0.006    0.000         0.37                    0.900
+  i1 trade price dp0-3          -0.01  0.98     0.470  -2.428  2.340    0.027    0.000         0.22                    0.998
+  i1 trade volume dv0-3         -0.02  0.77     0.582  -2.393  2.400    0.019    0.000         0.23                    0.998
+  additional a0                 -0.06  0.94     0.828  -2.719  2.486    0.015    0.000         0.99                    1.000
+  additional a1                 -0.00  0.97     0.949  -2.758  2.980    0.015    0.000         1.00                    1.000
+  additional a2                 -0.17  0.93     0.435  -2.541  2.332    0.019    0.000         1.00                    1.000
+  additional a3                 -0.23  0.93     0.244  -2.855  2.340    0.017    0.000         0.99                    1.000
+  additional a4                  0.06  0.94     0.862  -3.275  3.963    0.014    0.000         1.00                    1.000
+  additional a5                 -0.51  2.01     1.529  -5.199  2.514    0.142    0.139         0.64                    1.000
+  additional a6                 -0.53  1.94     1.332  -5.199  2.391    0.133    0.128         0.68                    1.000
+  additional a7                 -1.44  2.83     2.277  -5.199  2.412    0.371    0.355         0.66                    1.000
+
+Co-change of groups (fraction of steps on which a group changes, given another changes):
+  P(row | column)                i0 prip   i0 volv   i0 prip   i0 volv   i1 prip   i1 volv   i1 prip
+  i0 bid price-like p0-p10          1.00      0.24      0.62      0.24      0.15      0.15      0.12
+  i0 bid volume-like v0-v10         0.79      1.00      0.78      0.75      0.70      0.73      0.67
+  i0 trade price dp0-3              0.97      0.38      1.00      0.89      0.30      0.32      0.31
+  i0 trade volume dv0-3             0.21      0.21      0.51      1.00      0.22      0.23      0.25
+  i1 bid price-like p0-p10          0.07      0.10      0.09      0.12      1.00      0.24      0.42
+  i1 bid volume-like v0-v10         0.27      0.40      0.36      0.45      0.93      1.00      0.85
+  i1 trade price dp0-3              0.13      0.22      0.21      0.29      0.96      0.51      1.00
+  i0 bid and ask price columns change on the same rows: 0.991; i1: 0.993
+
+Principal components of the per-step price-column changes (rows where any column changed):
+  i0: variance share PC1 0.755, PC2 0.121, PC3 0.049; effective rank 1.70
+    corr of each column's change with PC1, bid p0-p10: +0.98 +0.61 +0.56 +0.97 -0.73 +0.02 +0.70 +0.95 +0.75 +0.53 -0.85
+    ask p11-p21:                                    +0.57 -0.08 -0.82 +0.52 +0.85 -0.91 +0.05 +0.89 -0.89 -0.79 +0.91
+  i1: variance share PC1 0.584, PC2 0.236, PC3 0.059; effective rank 2.49
+    corr of each column's change with PC1, bid p0-p10: +0.96 +0.49 +0.46 +0.94 -0.70 +0.12 +0.50 +0.91 +0.72 +0.41 -0.68
+    ask p11-p21:                                    +0.42 -0.11 -0.70 +0.38 +0.72 -0.86 +0.12 +0.86 -0.84 -0.65 +0.83
+  Tick-grid test: within a sequence and column, the fraction of nonzero |changes| that are integer multiples (+-5%) of the smallest one: i0 0.22 (3322 sequence-columns); a raw or affinely scaled tick price gives about 1.0, a chance level for smooth values is about 0.1 + the share of repeats of the smallest step
+    i0_p0: on average 9.2 distinct nonzero |change| values per sequence
+  Same-index columns of the two instruments: correlation of the 22 column means i0 vs i1 1.0000 (max |mean diff| 0.028); row-level correlation of i0_pk with i1_pk: median 0.02, range -0.04 to 0.13
+  i0 vs i1 mid-move proxies (PC1 of changes): corr on rows where both move -0.043 (395 rows); 20-step sums: +0.041
+
+Volume-like columns: bid/ask and price relation
+  i0 volume level correlations: mean within bid -0.01, within ask +0.11, bid vs ask +0.02; same-index bid k vs ask k+11: -0.32 +0.07 -0.02 +0.45 -0.23 -0.08 -0.24 +0.03 +0.14 -0.18 -0.05
+  i0 volume changes vs the mid-move proxy (same step): -0.28 -0.26 +0.10 -0.08 +0.27 +0.21 -0.13 +0.14 +0.19 +0.09 -0.25 +0.06 -0.05 -0.07 +0.32 +0.36 -0.05 -0.42 +0.02 -0.13 +0.23 +0.49
+
+Trade columns dp / dv:
+  i0_dp0: changes on 0.33 of steps, with i0_dv0 on 0.52 of those; corr of its changes with the book PC1 level change +0.14; dv0 fill share 0.000
+  i0_dp1: changes on 0.33 of steps, with i0_dv1 on 0.51 of those; corr of its changes with the book PC1 level change -0.29; dv1 fill share 0.000
+  i0_dp2: changes on 0.33 of steps, with i0_dv2 on 0.51 of those; corr of its changes with the book PC1 level change +0.16; dv2 fill share 0.000
+  i0_dp3: changes on 0.33 of steps, with i0_dv3 on 0.51 of those; corr of its changes with the book PC1 level change -0.42; dv3 fill share 0.000
+  i1_dp0: changes on 0.22 of steps, with i1_dv0 on 0.84 of those; corr of its changes with the book PC1 level change -0.01; dv0 fill share 0.000
+  i1_dp1: changes on 0.22 of steps, with i1_dv1 on 0.84 of those; corr of its changes with the book PC1 level change -0.22; dv1 fill share 0.000
+  i1_dp2: changes on 0.22 of steps, with i1_dv2 on 0.84 of those; corr of its changes with the book PC1 level change +0.16; dv2 fill share 0.000
+  i1_dp3: changes on 0.22 of steps, with i1_dv3 on 0.84 of those; corr of its changes with the book PC1 level change -0.15; dv3 fill share 0.000
+
+Additional columns a0-a7:
+  a0: fill 0.000, lag-1 autocorr +0.399, distinct values 5032, corr with t0 +0.032 / t1 +0.001 (|y|-weighted), its change vs i0 mid move +0.143
+  a1: fill 0.000, lag-1 autocorr -0.450, distinct values 8168, corr with t0 -0.002 / t1 +0.006 (|y|-weighted), its change vs i0 mid move +0.125
+  a2: fill 0.000, lag-1 autocorr +0.992, distinct values 8869, corr with t0 +0.074 / t1 -0.031 (|y|-weighted), its change vs i0 mid move +0.006
+  a3: fill 0.000, lag-1 autocorr +0.999, distinct values 8955, corr with t0 +0.133 / t1 -0.047 (|y|-weighted), its change vs i0 mid move -0.007
+  a4: fill 0.000, lag-1 autocorr +0.381, distinct values 9162, corr with t0 -0.016 / t1 +0.008 (|y|-weighted), its change vs i0 mid move +0.075
+  a5: fill 0.139, lag-1 autocorr +0.988, distinct values 6953, corr with t0 +0.034 / t1 -0.016 (|y|-weighted), its change vs i0 mid move +0.001
+  a6: fill 0.128, lag-1 autocorr +0.988, distinct values 6477, corr with t0 +0.089 / t1 +0.059 (|y|-weighted), its change vs i0 mid move +0.000
+  a7: fill 0.355, lag-1 autocorr +0.966, distinct values 85, corr with t0 -0.021 / t1 +0.014 (|y|-weighted), its change vs i0 mid move -0.024
+
+The 168 model inputs (train_v5m.build_inputs): 0-43 the 44 price-like columns (i0_p0-21, i1_p0-21), 44-87 their one-step differences, 88-155 the 68 other columns (i0_v0-21, i0_dp0-3, i0_dv0-3, i1_v0-21, i1_dp0-3, i1_dv0-3, a0-a7), all standardised with fixed train means / stds, then 156-167 twelve flags |x| == fill for a0, a5, a6, a7, i0_dv0-3, i1_dv0-3.
+
+=== 2./3. Order-book quantities: proxies, target correlations, overlap with the 168 inputs ===
+Proxies (all causal; mid in PC1 units of the instrument's price-column changes, relative to step 0):
+  mid0, mid1          cumulative PC1 of the price-column changes (level relative to step 0); also dmid0_20 = mid0[t] - mid0[t-20]
+  spread0             mean of slope-normalised ask columns minus bid columns (19 of 22 columns with |slope| >= 5% of the largest); a linear combination of the current price inputs
+  imb_L1              rank imbalance (Phi(v_bid) - Phi(v_ask)) / sum of the pair i0_v10 / i0_v21, the pair whose imbalance best predicts the next-20-step mid move (corr +0.061; all pairs +0.03 -0.01 +0.00 +0.03 +0.01 -0.03 +0.01 -0.04 -0.02 +0.01 +0.06)
+  imb_depth           (sum Phi(bid volumes) - sum Phi(ask volumes)) / sum of all 22, rank units
+  micro_off, micro0   microprice offset spread0 * imb_L1 / 2 and micro0 = mid0 + offset
+  xmid                mid0 - beta * mid1, beta -0.004 (regression of i0 on i1 PC1 changes)
+
+Reference: |y|-weighted CV correlation of a ridge from the 168 current inputs to the target on these rows (steps 20-119): t0 0.130, t1 0.105; best single input column i1_v12
+
+  quantity                   corr y now (t0/t1, se)    corr y[t+20]-y[t] (t0/t1, se) R2 from 168  +hist  gain in ridge corr t0/t1
+  mid0                   -0.035 / +0.047 (0.023) +0.010 / -0.069 (0.022)              0.240  0.105      -0.0198 / -0.0001
+  mid1                   -0.085 / +0.011 (0.036) -0.071 / +0.055 (0.022)              0.069 -0.041      -0.0150 / -0.0109
+  dmid0_20               +0.001 / +0.043 (0.010) -0.033 / -0.057 (0.018)              0.206  0.725      -0.0027 / -0.0036
+  spread0                +0.084 / +0.125 (0.031) +0.021 / -0.039 (0.014)              1.000  1.000      -0.0000 / +0.0000
+  imb_L1                 -0.028 / -0.021 (0.035) +0.026 / -0.050 (0.020)              0.917  0.902      +0.0020 / -0.0036
+  imb_depth              -0.183 / -0.071 (0.041) +0.046 / +0.048 (0.024)              0.957  0.947      -0.0038 / +0.0046
+  micro_off              +0.041 / +0.032 (0.031) -0.024 / +0.049 (0.019)              0.873  0.847      +0.0037 / -0.0027
+  micro0                 +0.002 / +0.056 (0.027) -0.009 / -0.017 (0.020)              0.530  0.439      -0.0185 / -0.0078
+  xmid                   -0.035 / +0.047 (0.024) +0.009 / -0.069 (0.021)              0.240  0.105      -0.0198 / -0.0001
+  ref:i1_v12             -0.182 / +0.169 (0.032) +0.044 / -0.001 (0.019)              1.000  1.000      +0.0000 / +0.0000
+  se: bootstrap over the 200 sequences of the mean over t0 / t1. R2: 5-fold CV by sequence, rows 20-119; '+hist' adds the inputs' mean over the previous 20 steps. Gain: |y|-weighted CV correlation of the ridge with the quantity added minus without (same folds).

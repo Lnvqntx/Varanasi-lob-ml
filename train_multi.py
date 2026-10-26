@@ -30,6 +30,33 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
                   for the same rows (make_teacher.py: v18c + v19a, clipped, float16; read with the batch from --teacher)
       wpow=P      row-weight power (default 1; needs no aux): the row weight becomes (|clipped y|^P + 0.05) times the
                   mask weight instead of (|clipped y| + 0.05). With kd 0 and wpow 1 the loss is train_v5m.loss_fn.
+      chunk=C     training chunk length in steps (default: the shared --chunk, 1000); a multiple of --chunk that
+                  divides 20,000. The hidden state is carried across chunks as before and the batch stays 16
+                  sequences, so the model takes 20,000 / C optimizer steps per batch (its cosine schedule and step
+                  count follow that). Batches are still cut into --chunk pieces: the model steps when its chunk
+                  ends, on the last C steps. Evaluation always runs in --chunk pieces (the state is carried, so the
+                  outputs are the same). Eval lines and "step" in the checkpoint count --chunk pieces, as for every
+                  model ("model_step" holds the model's own optimizer steps).
+      fdrop=P     input-column dropout, training only (default 0 = off): each of the 156 standardised input columns
+                  (never the 12 flag columns) is zeroed independently per sequence with probability P, constant over
+                  the training chunk; kept columns are scaled by 1 / (1 - P). Own torch.Generator (seed
+                  FDROP_SEED + init seed), so no other random stream moves.
+      cls=W       auxiliary classification head (default 0 = off): a second linear layer on the GRU output gives one
+                  21-way softmax per target over 21 equal bins of the clipped range [-2, 2]; its cross-entropy, with
+                  the main loss's row weights, steps >= 99 mask and normalisation, is added with weight W. The head
+                  is initialised from its own seed (CLS_SEED + init seed), trained with the model's optimizer, and
+                  not saved: evaluation and the checkpoints use the main outputs only.
+      drop=G[+G]  input-group ablation (default none): the model's input columns of the named groups (DROP_GROUPS,
+                  built from the column names below) are set to 0 in training AND evaluation, i.e. the training mean
+                  of a standardised column (flag columns become 0 = "not filled"). The input size stays 168, so the
+                  checkpoints load as usual, but the exporters do not zero the columns: these are ablations, not
+                  submissions. Groups (indices into train_v5m.build_inputs' 168 columns):
+                    i1       instrument i1: i1_p0-21, their 22 differences, i1_v0-21, i1_dp0-3, i1_dv0-3, i1_dv flags (78)
+                    i1px     i1_p0-21 and their differences (44)
+                    vol      i0_v0-21 and i1_v0-21 (44; the volume-like columns have no fill flags)
+                    trade    i0/i1 dp0-3 and dv0-3 and the 8 dv fill flags (24)
+                    anon     a0-a7 and the a0 / a5 / a6 / a7 fill flags (12; not instrument-specific, so not in i1)
+                    pxlevel  i0_p0-21 and i1_p0-21 (44; their differences are kept)
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -79,8 +106,63 @@ N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (bu
 
 
 OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
-           "noise": float, "kd": float, "wpow": float}
+           "noise": float, "kd": float, "wpow": float,
+           "chunk": int, "fdrop": float, "cls": float, "drop": str}
 NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
+FDROP_SEED = 2_000_000  # input-column dropout generator seed = FDROP_SEED + init seed
+CLS_SEED = 3_000_000  # classification head init seed = CLS_SEED + init seed
+N_BINS = 21  # classification head bins over the clipped target range [-2, 2]
+
+
+def input_names():
+    """Names of the 168 build_inputs columns: prices, their differences, the other columns, then the fill flags."""
+    return (list(PRICE_COLS) + [f"d_{c}" for c in PRICE_COLS] + list(OTHER_COLS) + [f"flag_{c}" for c in FLAG_COLS])
+
+
+def drop_groups():
+    """Input-group index lists for drop=, from the column names (parquet schema via train_v5m)."""
+    names = input_names()
+    assert len(names) == N_CONT + len(FLAG_COLS) == 168
+    base = [n[2:] if n.startswith("d_") else n[5:] if n.startswith("flag_") else n for n in names]
+    kind = ["diff" if n.startswith("d_") else "flag" if n.startswith("flag_") else "col" for n in names]
+
+    def is_(b, inst=None, grp=None):
+        if inst is not None and not b.startswith(inst + "_"):
+            return False
+        if grp is None:
+            return True
+        g = b.split("_", 1)[1] if "_" in b else b
+        return g.rstrip("0123456789") == grp
+    g = {"i1": [j for j, b in enumerate(base) if is_(b, "i1")],
+         "i1px": [j for j, b in enumerate(base) if is_(b, "i1", "p")],
+         "vol": [j for j, b in enumerate(base) if is_(b, None, "v") and "_" in b],
+         "trade": [j for j, b in enumerate(base) if "_" in b and (is_(b, None, "dp") or is_(b, None, "dv"))],
+         "anon": [j for j, b in enumerate(base) if b.startswith("a") and b[1:].isdigit()],
+         "pxlevel": [j for j, (b, k) in enumerate(zip(base, kind)) if k == "col" and "_" in b and is_(b, None, "p")]}
+    for k, v in g.items():
+        assert v, f"drop group {k} is empty"
+    return g, names
+
+
+DROP_GROUPS, INPUT_NAMES = drop_groups()
+
+
+def drop_index(spec):
+    """'i1+vol' -> sorted index list of the union of the named groups."""
+    idx = set()
+    for k in spec.split("+"):
+        assert k in DROP_GROUPS, f"unknown drop group {k!r} (known: {sorted(DROP_GROUPS)})"
+        idx |= set(DROP_GROUPS[k])
+    return sorted(idx)
+
+
+def apply_drop(x, idx):
+    """x (B, T, 168) with the columns idx set to 0 (a copy; idx None = unchanged, same tensor)."""
+    if idx is None:
+        return x
+    x = x.clone()
+    x[:, :, idx] = 0
+    return x
 
 
 def parse_models(spec):
@@ -114,6 +196,9 @@ def parse_models(spec):
         assert m["kd"] is None or 0 <= m["kd"] <= 1, f"kd {m['kd']} not in [0, 1]"
         assert m["wpow"] is None or m["wpow"] > 0, f"wpow {m['wpow']} <= 0"
         assert not aux or (m["kd"] or 0) == 0 and (m["wpow"] or 1) == 1, "kd / wpow need a model without aux heads"
+        assert m["fdrop"] is None or 0 <= m["fdrop"] < 1, f"fdrop {m['fdrop']} not in [0, 1)"
+        assert m["cls"] is None or m["cls"] >= 0, f"cls {m['cls']} < 0"
+        assert not aux or (m["cls"] or 0) == 0, "cls needs a model without aux heads"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -154,6 +239,19 @@ def kd_loss_fn(pred, y, t, valid, m, kd, wpow):
     return (1 - kd) * main + kd * teach, main, teach
 
 
+def cls_loss_fn(logits, y, valid, m, wpow):
+    """Cross-entropy of the (B, T, 2 * N_BINS) classification logits against the bin of the clipped target, with the
+    main loss's row weights (|yc|^wpow + 0.05) * valid * m and normalisation."""
+    yc = y.clamp(-2, 2)
+    label = ((yc + 2) / 4 * N_BINS).floor().clamp(0, N_BINS - 1).long()
+    logp = torch.log_softmax(logits.view(*logits.shape[:2], 2, N_BINS), dim=-1)
+    nll = -logp.gather(-1, label[..., None])[..., 0]
+    w = ((yc.abs() if wpow == 1 else yc.abs() ** wpow) + 0.05) * valid
+    if m is not None:
+        w = w * m
+    return (w * nll).sum() / w.sum().clamp_min(1e-8)
+
+
 def build_model(sp, hidden):
     n_out, layers, dropout = 2 + 2 * len(sp["offsets"]), sp["layers"] or 2, sp["dropout"] or 0.0
     if dropout == 0:
@@ -163,8 +261,9 @@ def build_model(sp, hidden):
 
 
 @torch.no_grad()
-def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25):
-    """train_v5m.evaluate for K models; each batch is read once. Returns a list of per-model results."""
+def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25, drops=None):
+    """train_v5m.evaluate for K models; each batch is read once. Returns a list of per-model results.
+    drops: per model None or the input column indices to zero (drop=)."""
     for m in models:
         m.eval()
     acc = [GlobalAccumulator() for _ in models]
@@ -176,8 +275,9 @@ def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch
         for i, model in enumerate(models):
             h = None
             preds = []
+            xi = x if drops is None else apply_drop(x, drops[i])
             for s in range(0, SEQ_LEN, chunk):
-                p, h = model(x[:, s:s + chunk], h)
+                p, h = model(xi[:, s:s + chunk], h)
                 preds.append(p[:, :, :2])  # main targets only; auxiliary outputs are never scored
             preds = torch.cat(preds, 1).float().cpu().numpy()
             for k in range(len(preds)):
@@ -221,7 +321,12 @@ def main():
                   dropout_=sp["dropout"] or 0.0, wd_=args.wd if sp["wd"] is None else sp["wd"],
                   lr_=args.lr if sp["lr"] is None else sp["lr"], hidden_=sp["hidden"] or args.hidden,
                   ema_=sp["ema"] or 0.0, noise_=sp["noise"] or 0.0,
-                  kd_=sp["kd"] or 0.0, wpow_=1.0 if sp["wpow"] is None else sp["wpow"])
+                  kd_=sp["kd"] or 0.0, wpow_=1.0 if sp["wpow"] is None else sp["wpow"],
+                  chunk_=sp["chunk"] or args.chunk, fdrop_=sp["fdrop"] or 0.0, cls_=sp["cls"] or 0.0,
+                  drop_=sp["drop"] or "")
+        sp["drop_idx"] = drop_index(sp["drop_"]) if sp["drop_"] else None
+        assert sp["chunk_"] % args.chunk == 0 and SEQ_LEN % sp["chunk_"] == 0, \
+            f"chunk {sp['chunk_']}: must be a multiple of --chunk {args.chunk} and divide {SEQ_LEN}"
         sp["custom_loss"] = sp["kd_"] > 0 or sp["wpow_"] != 1
     data_seed = specs[0]["seed"] if args.data_seed is None else args.data_seed
     sfx = "_smoke" if args.smoke else ""
@@ -253,7 +358,9 @@ def main():
         a = {k: v for k, v in vars(args).items() if k not in ("models", "data_seed", "run")}
         a.update(seed=sp["seed"], name=sp["name"], arch=sp["arch"], aux=sp["aux"], aux_weight=sp["aux_weight"],
                  alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
-                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
+                 lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"],
+                 train_chunk=sp["chunk_"], fdrop=sp["fdrop_"], cls=sp["cls_"], drop=sp["drop_"],
+                 drop_idx=sp["drop_idx"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
 
     log(f"args: {vars(args)}; data seed {data_seed}; {len(specs)} models")
@@ -345,25 +452,51 @@ def main():
         if sp["noise_"] > 0:
             sp["noise_gen"] = torch.Generator(device=device)
             sp["noise_gen"].manual_seed(NOISE_SEED + sp["seed"])
+        sp["fdrop_gen"] = None
+        if sp["fdrop_"] > 0:
+            sp["fdrop_gen"] = torch.Generator(device=device)
+            sp["fdrop_gen"].manual_seed(FDROP_SEED + sp["seed"])
+        sp["cls_head"] = None
+        if sp["cls_"] > 0:  # own seed on a forked CPU RNG, so the global torch stream is untouched
+            with torch.random.fork_rng(devices=[]):
+                torch.manual_seed(CLS_SEED + sp["seed"])
+                sp["cls_head"] = torch.nn.Linear(sp["hidden_"], 2 * N_BINS)
+            sp["cls_head"] = sp["cls_head"].to(device)
+        sp["total"] = int(args.epochs * batches_per_epoch * (SEQ_LEN // sp["chunk_"]))
+        if args.max_steps is not None:
+            sp["total"] = min(sp["total"], args.max_steps * args.chunk // sp["chunk_"])
         mlog(sp, f"settings: alpha {sp['alpha_']}, layers {sp['layers_']}, dropout {sp['dropout_']}, "
                  f"weight decay {sp['wd_']}, lr {sp['lr_']}, hidden {sp['hidden_']}, ema {sp['ema_']}"
                  + ("" if sp["noise_gen"] is None else f", input noise {sp['noise_']} (training only, generator seed "
                                                        f"{NOISE_SEED + sp['seed']}, {N_CONT} standardised columns)")
                  + (f", distillation kd {sp['kd_']} (loss = (1 - kd) * main + kd * teacher)" if sp["kd_"] > 0 else "")
-                 + (f", row weight (|y|^{sp['wpow_']} + 0.05) * m" if sp["wpow_"] != 1 else ""))
+                 + (f", row weight (|y|^{sp['wpow_']} + 0.05) * m" if sp["wpow_"] != 1 else "")
+                 + (f", training chunk {sp['chunk_']} ({SEQ_LEN // sp['chunk_']} optimizer steps per batch)"
+                    if sp["chunk_"] != args.chunk else "")
+                 + (f", input-column dropout {sp['fdrop_']} (training only, per sequence and chunk, {N_CONT} "
+                    f"standardised columns, generator seed {FDROP_SEED + sp['seed']})" if sp["fdrop_"] > 0 else "")
+                 + (f", classification head weight {sp['cls_']} ({N_BINS} bins on [-2, 2] per target, init seed "
+                    f"{CLS_SEED + sp['seed']}, not saved)" if sp["cls_"] > 0 else "")
+                 + (f", input groups dropped (set to 0 in training and evaluation): {sp['drop_']} = "
+                    f"{len(sp['drop_idx'])} columns {sp['drop_idx']}" if sp["drop_idx"] else ""))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
         mlog(sp, f"params: {sum(p.numel() for p in sp['model'].parameters()):,}")
-        sp["opt"] = torch.optim.AdamW(sp["model"].parameters(), lr=sp["lr_"], weight_decay=sp["wd_"])
+        sp["params"] = list(sp["model"].parameters()) + (
+            [] if sp["cls_head"] is None else list(sp["cls_head"].parameters()))
+        sp["opt"] = torch.optim.AdamW(sp["model"].parameters() if sp["cls_head"] is None else sp["params"],
+                                      lr=sp["lr_"], weight_decay=sp["wd_"])
         sp["sched"] = torch.optim.lr_scheduler.LambdaLR(
-            sp["opt"], lambda s: 0.5 * (1 + math.cos(math.pi * min(s, total_steps) / total_steps)))
-        sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, t_model=0.0, t_since=0.0)
+            sp["opt"], lambda s, T=sp["total"]: 0.5 * (1 + math.cos(math.pi * min(s, T) / T)))
+        sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, run_cls=0.0, run_k=0,
+                  step=0, t_model=0.0, t_since=0.0)
     log(f"{batches_per_epoch} batches/epoch x {chunks_per_seq} chunks = {batches_per_epoch * chunks_per_seq} "
         f"steps/epoch; total optimizer steps {total_steps} per model")
     for sp in specs:
-        mlog(sp, f"{batches_per_epoch} batches/epoch x {chunks_per_seq} chunks = {batches_per_epoch * chunks_per_seq} "
-                 f"steps/epoch; total optimizer steps {total_steps}")
+        cps = SEQ_LEN // sp["chunk_"]
+        mlog(sp, f"{batches_per_epoch} batches/epoch x {cps} chunks = {batches_per_epoch * cps} "
+                 f"steps/epoch; total optimizer steps {sp['total']}")
 
     steps_in_chunk = torch.arange(SEQ_LEN, device=device)
     step = 0
@@ -375,6 +508,7 @@ def main():
 
     def save(sp, path, rv, rva, rh):
         torch.save({"model": eval_model(sp).state_dict(), "stats": stats, "args": model_args(sp), "step": step,
+                    "model_step": sp["step"],
                     "valid": rv, "valid_all": rva, "holdout": rh, "price_cols": PRICE_COLS, "other_cols": OTHER_COLS,
                     "flag_cols": FLAG_COLS}, path)
 
@@ -384,9 +518,11 @@ def main():
         # EMA models are evaluated with their EMA weights; their raw weights are appended for comparison
         raw = [sp for sp in specs if sp["ema_model"] is not None]
         models = [eval_model(sp) for sp in specs] + [sp["model"] for sp in raw]
-        rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True)
+        drops = [sp["drop_idx"] for sp in specs] + [sp["drop_idx"] for sp in raw]
+        drops = None if all(d is None for d in drops) else drops
+        rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True, drops=drops)
         tv = time.time() - te
-        rhs = evaluate_multi(models, train, holdout_idx, stats, device, args.chunk, use_is_scored=False)
+        rhs = evaluate_multi(models, train, holdout_idx, stats, device, args.chunk, use_is_scored=False, drops=drops)
         th = time.time() - te - tv
         for sp, (rv, rva), rh in zip(raw, rvs[len(specs):], rhs[len(specs):]):
             mlog(sp, f"[eval step {step}] raw (non-EMA) weights: valid is_scored wp={rv['weighted_pearson']:.4f} "
@@ -449,35 +585,56 @@ def main():
                     break
                 ts = time.time()
                 valid_mask = (steps_in_chunk[s:s + args.chunk] >= WARMUP).float()[None, :, None]
+                e = s + args.chunk  # end of this --chunk piece
                 for sp in specs:
+                    c = sp["chunk_"]
+                    if e % c != 0 or sp["step"] >= sp["total"]:
+                        continue  # the model's chunk has not ended yet (or its step budget is used up)
+                    sl = slice(e - c, e)
                     tm = time.time()
-                    m = None if m_all[sp["alpha_"]] is None else m_all[sp["alpha_"]][:, s:s + args.chunk]
-                    xc = x[:, s:s + args.chunk]
+                    vm = valid_mask if c == args.chunk else (steps_in_chunk[sl] >= WARMUP).float()[None, :, None]
+                    m = None if m_all[sp["alpha_"]] is None else m_all[sp["alpha_"]][:, sl]
+                    xc = x[:, sl]
                     if sp["noise_gen"] is not None:  # training only; flags (the last 12 columns) stay exact
                         xc = torch.cat([xc[:, :, :N_CONT] + sp["noise_"] * torch.randn(
                             xc.shape[0], xc.shape[1], N_CONT, device=device, generator=sp["noise_gen"]),
                             xc[:, :, N_CONT:]], dim=2)
-                    pred, sp["h"] = sp["model"](xc, sp["h"])
+                    if sp["fdrop_gen"] is not None:  # training only; one keep mask per sequence and column
+                        q = sp["fdrop_"]
+                        keep = (torch.rand(xc.shape[0], 1, N_CONT, device=device, generator=sp["fdrop_gen"]) >= q)
+                        xc = torch.cat([xc[:, :, :N_CONT] * keep.float() / (1 - q), xc[:, :, N_CONT:]], dim=2)
+                    xc = apply_drop(xc, sp["drop_idx"])  # after noise / fdrop, so the dropped columns are exactly 0
+                    if sp["cls_head"] is None:
+                        pred, sp["h"] = sp["model"](xc, sp["h"])
+                    else:  # the model's own forward, split to reach the GRU output
+                        out, sp["h"] = getattr(sp["model"], sp["arch"])(xc, sp["h"])
+                        pred = sp["model"].head(out)
+                        logits = sp["cls_head"](out)
                     if sp["offsets"]:
                         y_aux, in_range = aux[tuple(sp["offsets"])]
-                        main = loss_fn(pred[:, :, :2], y[:, s:s + args.chunk], valid_mask, m)
-                        al = torch.stack(aux_loss(pred, y_aux[:, s:s + args.chunk], in_range[s:s + args.chunk],
-                                                  valid_mask, m)).sum()
+                        main = loss_fn(pred[:, :, :2], y[:, sl], vm, m)
+                        al = torch.stack(aux_loss(pred, y_aux[:, sl], in_range[sl], vm, m)).sum()
                         loss = main + sp["aux_weight"] * al
                         sp["run_main"] += main.item()
                         sp["run_aux"] += al.item()
                     elif sp["custom_loss"]:
-                        loss, main, teach = kd_loss_fn(pred, y[:, s:s + args.chunk],
-                                                       y_t[:, s:s + args.chunk] if sp["kd_"] > 0 else None,
-                                                       valid_mask, m, sp["kd_"], sp["wpow_"])
+                        loss, main, teach = kd_loss_fn(pred, y[:, sl], y_t[:, sl] if sp["kd_"] > 0 else None,
+                                                       vm, m, sp["kd_"], sp["wpow_"])
                         sp["run_main"] += main.item()
                         if teach is not None:
                             sp["run_teach"] += teach.item()
                     else:
-                        loss = loss_fn(pred, y[:, s:s + args.chunk], valid_mask, m)
+                        loss = loss_fn(pred, y[:, sl], vm, m)
+                    if sp["cls_head"] is not None:
+                        if not sp["custom_loss"]:
+                            sp["run_main"] += loss.item()
+                        cl = cls_loss_fn(logits, y[:, sl], vm, m, sp["wpow_"])
+                        loss = loss + sp["cls_"] * cl
+                        sp["run_cls"] += cl.item()
                     sp["opt"].zero_grad(set_to_none=True)
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(sp["model"].parameters(), 1.0)
+                    torch.nn.utils.clip_grad_norm_(sp["model"].parameters() if sp["cls_head"] is None else sp["params"],
+                                                   1.0)
                     sp["opt"].step()
                     sp["sched"].step()
                     if sp["ema_model"] is not None:
@@ -486,6 +643,8 @@ def main():
                                                  1.0 - sp["ema_"])
                     sp["h"] = detach_state(sp["h"])
                     sp["run_loss"] += loss.item()  # .item() synchronises, so the timing below is real GPU time
+                    sp["step"] += 1
+                    sp["run_k"] += 1
                     dt = time.time() - tm
                     sp["t_model"] += dt
                     sp["t_since"] += dt
@@ -495,11 +654,15 @@ def main():
                 if step % 100 == 0 or (args.smoke and step % 10 == 0):
                     el = time.time() - t_last
                     for sp in specs:
-                        parts = (f" (main {sp['run_main'] / run_n:.4f}, aux sum {sp['run_aux'] / run_n:.4f})"
+                        k = max(sp["run_k"], 1)  # the model's own optimizer steps since the last line (run_n by default)
+                        parts = (f" (main {sp['run_main'] / k:.4f}, aux sum {sp['run_aux'] / k:.4f})"
                                  if sp["offsets"] else "")
                         if sp["kd_"] > 0:
-                            parts = f" (main {sp['run_main'] / run_n:.4f}, teacher {sp['run_teach'] / run_n:.4f})"
-                        mlog(sp, f"epoch {epoch} step {step}/{total_steps} loss {sp['run_loss'] / run_n:.4f}{parts} "
+                            parts = f" (main {sp['run_main'] / k:.4f}, teacher {sp['run_teach'] / k:.4f})"
+                        if sp["cls_head"] is not None:
+                            parts = (parts[:-1] if parts else f" (main {sp['run_main'] / k:.4f}") \
+                                + f", cls {sp['run_cls'] / k:.4f})"
+                        mlog(sp, f"epoch {epoch} step {sp['step']}/{sp['total']} loss {sp['run_loss'] / k:.4f}{parts} "
                                  f"lr {sp['sched'].get_last_lr()[0]:.2e} | {run_n / el:.1f} steps/s wall, "
                                  f"{run_n * args.batch * args.chunk / el:,.0f} seq-steps/s | "
                                  f"gpu peak {torch.cuda.max_memory_allocated() / 2**30:.2f} GB")
@@ -508,7 +671,7 @@ def main():
                                                           for sp in specs)
                         + f" steps/s; loader wait so far {t_wait:.1f}s")
                     for sp in specs:
-                        sp.update(run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, t_since=0.0)
+                        sp.update(run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, run_cls=0.0, run_k=0, t_since=0.0)
                     run_n, t_last = 0, time.time()
                 if step % args.eval_every == 0:
                     do_eval()
@@ -522,8 +685,8 @@ def main():
         log(f"trained sequence-passes per unit {UNITS}: {seen.tolist()} (each batch checked: targets are multiples "
             f"of {unit_value})")
     for sp in specs:
-        mlog(sp, f"done. best valid wp {sp['best']:.4f}; own train compute {sp['t_model']:.1f}s for {step} steps "
-                 f"({step / max(sp['t_model'], 1e-9):.2f} steps/s)")
+        mlog(sp, f"done. best valid wp {sp['best']:.4f}; own train compute {sp['t_model']:.1f}s for {sp['step']} steps "
+                 f"({sp['step'] / max(sp['t_model'], 1e-9):.2f} steps/s)")
     log(f"done. {len(specs)} models x {step} steps; pure train compute {t_train:.1f}s "
         f"({step / max(t_train, 1e-9):.2f} steps/s for all models together, "
         f"{len(specs) * step / max(t_train, 1e-9):.2f} model-steps/s); loader wait {t_wait:.1f}s; gpu peak allocated "
