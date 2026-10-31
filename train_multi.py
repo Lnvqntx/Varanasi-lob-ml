@@ -57,6 +57,19 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
                     trade    i0/i1 dp0-3 and dv0-3 and the 8 dv fill flags (24)
                     anon     a0-a7 and the a0 / a5 / a6 / a7 fill flags (12; not instrument-specific, so not in i1)
                     pxlevel  i0_p0-21 and i1_p0-21 (44; their differences are kept)
+      xvd=S       extra input columns (default none): one-step changes of the volume-like columns, S = all (i0_v0-21
+                  and i1_v0-21, 44 columns) or i1 (i1_v0-21, 22). change[t] = v[t] - v[t-1] of the cached values,
+                  set to 0 at step 0 and wherever v[t] or v[t-1] is the fill value +-5.1992 (volume columns have no
+                  fill flags, and a flag is set exactly when |value| is the fill value, so this covers both rules).
+      xagg=1      extra input columns (default 0): OFI-style aggregates per instrument from those (zeroed) changes:
+                  sum over the bid-side columns v0-10, sum over the ask-side columns v11-21, and bid - ask
+                  (docs/data_overview.md: "bid and ask are told apart by index only (0-10 bid, 11-21 ask)"); 6 columns.
+                  The extra columns are appended after the 168 (xvd first, then xagg) and standardised as the price
+                  differences are: (value - mean) / std with mean and std from the same --n-stats training sequences,
+                  steps >= 1 (compute_stats' procedure). Input noise and fdrop do not touch them; drop= indices refer
+                  to the 168. The model's input size grows (168 + 44 / 22, + 6); checkpoints record "n_in", the extra
+                  column names and their stats ("x_stats"), and load_model() rebuilds such a model. The exporters
+                  do not build the extra columns: these models are experiments, not submissions yet.
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -98,16 +111,16 @@ import time
 import numpy as np
 import torch
 
-from train_v5m import (ARCHS, CKPT_DIR, FLAG_COLS, GPU_MEM_CAP_GB, OTHER_COLS, PRICE_COLS, SEQ_LEN, WARMUP,
-                       GlobalAccumulator, Prefetcher, aux_loss, aux_targets, build_inputs, compute_stats,
-                       detach_state, load_split, loss_fn, parse_offsets, set_seed)
+from train_v5m import (ARCHS, CKPT_DIR, FILL, FLAG_COLS, GPU_MEM_CAP_GB, N_IN, OTHER_COLS, PRICE_COLS, SEQ_LEN,
+                       WARMUP, GlobalAccumulator, Prefetcher, aux_loss, aux_targets, build_inputs, compute_stats,
+                       detach_state, load_split, loss_fn, parse_offsets, read_batch, set_seed)
 
 N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (build_inputs puts the flags last)
 
 
 OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
            "noise": float, "kd": float, "wpow": float,
-           "chunk": int, "fdrop": float, "cls": float, "drop": str}
+           "chunk": int, "fdrop": float, "cls": float, "drop": str, "xvd": str, "xagg": int}
 NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
 FDROP_SEED = 2_000_000  # input-column dropout generator seed = FDROP_SEED + init seed
 CLS_SEED = 3_000_000  # classification head init seed = CLS_SEED + init seed
@@ -165,6 +178,61 @@ def apply_drop(x, idx):
     return x
 
 
+VOL_COLS = [f"i{i}_v{j}" for i in range(2) for j in range(22)]  # the 44 volume-like columns, i0 then i1
+VOL_IDX = [OTHER_COLS.index(c) for c in VOL_COLS]  # into the 68 other features
+assert not set(VOL_COLS) & set(FLAG_COLS)
+EXTRA_NAMES = ([f"xvd_{c}" for c in VOL_COLS]
+               + [f"xagg_i{i}_{k}" for i in range(2) for k in ("bid", "ask", "bid_minus_ask")])  # 50 extra columns
+
+
+def extra_raw(other):
+    """other (B,T,68) -> (B,T,50) f32 unstandardised extra columns: 44 volume changes, then per instrument the bid sum
+    (v0-10), ask sum (v11-21) and their difference of the changes. 0 at step 0 and where either value is the fill."""
+    v = other[:, :, VOL_IDX].float()
+    fill = v.abs() == FILL
+    dv = torch.zeros_like(v)
+    dv[:, 1:] = v[:, 1:] - v[:, :-1]
+    dv[:, 1:][fill[:, 1:] | fill[:, :-1]] = 0
+    agg = []
+    for i in range(2):
+        bid = dv[:, :, 22 * i:22 * i + 11].sum(2)
+        ask = dv[:, :, 22 * i + 11:22 * i + 22].sum(2)
+        agg += [bid, ask, bid - ask]
+    return torch.cat([dv, torch.stack(agg, 2)], 2)
+
+
+def extra_index(xvd, xagg):
+    """Indices into the 50 EXTRA_NAMES columns for xvd= / xagg= (None = no extra columns)."""
+    idx = {"": [], "all": list(range(44)), "i1": list(range(22, 44))}[xvd] + (list(range(44, 50)) if xagg else [])
+    return idx or None
+
+
+def compute_extra_stats(data, idx, device):
+    """compute_stats' procedure for the extra columns: per sequence, steps >= 1, float64 sums."""
+    s1 = torch.zeros(len(EXTRA_NAMES), dtype=torch.float64, device=device)
+    s2 = torch.zeros_like(s1)
+    n = 0
+    for i in idx:
+        b = read_batch(data, [i])
+        x = extra_raw(torch.from_numpy(b["features"]).to(device))[0, 1:].double()
+        s1 += x.sum(0)
+        s2 += (x * x).sum(0)
+        n += x.shape[0]
+    mean = s1 / n
+    std = (s2 / n - mean ** 2).clamp_min(0).sqrt().clamp_min(1e-6)
+    return {"mean": mean.float(), "std": std.float()}
+
+
+def build_extra(other, xstats):
+    """(B,T,50) standardised extra columns."""
+    return (extra_raw(other) - xstats["mean"]) / xstats["std"]
+
+
+def with_extra(x, xe, idx):
+    """x (B,T,168) with the extra columns idx of xe appended (idx None = x itself)."""
+    return x if idx is None else torch.cat([x, xe[:, :, idx]], 2)
+
+
 def parse_models(spec):
     """'n:s:a:aux:w[:k=v...],n:s:a:aux:w[:k=v...]' -> list of dicts (options None = default). aux may hold
     commas, so split on ':'; after aux, every field is aux_weight or k=v, and a field holding a ',' ends the
@@ -199,6 +267,8 @@ def parse_models(spec):
         assert m["fdrop"] is None or 0 <= m["fdrop"] < 1, f"fdrop {m['fdrop']} not in [0, 1)"
         assert m["cls"] is None or m["cls"] >= 0, f"cls {m['cls']} < 0"
         assert not aux or (m["cls"] or 0) == 0, "cls needs a model without aux heads"
+        assert m["xvd"] in (None, "all", "i1"), f"xvd {m['xvd']!r} not all / i1"
+        assert m["xagg"] in (None, 0, 1), f"xagg {m['xagg']} not 0 / 1"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -252,18 +322,32 @@ def cls_loss_fn(logits, y, valid, m, wpow):
     return (w * nll).sum() / w.sum().clamp_min(1e-8)
 
 
-def build_model(sp, hidden):
+def build_model(sp, hidden, n_in=N_IN):
     n_out, layers, dropout = 2 + 2 * len(sp["offsets"]), sp["layers"] or 2, sp["dropout"] or 0.0
     if dropout == 0:
-        return ARCHS[sp["arch"]](hidden=hidden, layers=layers, n_out=n_out)
-    from train_v5m import N_IN
-    return RNNModel(sp["arch"], N_IN, hidden, layers, n_out, dropout)
+        if n_in == N_IN:
+            return ARCHS[sp["arch"]](hidden=hidden, layers=layers, n_out=n_out)
+        return ARCHS[sp["arch"]](n_in=n_in, hidden=hidden, layers=layers, n_out=n_out)
+    return RNNModel(sp["arch"], n_in, hidden, layers, n_out, dropout)
+
+
+def load_model(path, device="cpu"):
+    """Rebuild a train_multi checkpoint's model (input size from "n_in", 168 for older checkpoints).
+    Returns (model in eval mode, checkpoint dict)."""
+    ck = torch.load(path, map_location=device, weights_only=False)
+    a = ck["args"]
+    sp = {"offsets": parse_offsets(a.get("aux", "")), "layers": a.get("layers", 2), "dropout": 0.0, "arch": a["arch"]}
+    model = build_model(sp, a["hidden"], ck.get("n_in", N_IN)).to(device)
+    model.load_state_dict(ck["model"])
+    return model.eval(), ck
 
 
 @torch.no_grad()
-def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25, drops=None):
+def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25, drops=None, extras=None,
+                   xstats=None):
     """train_v5m.evaluate for K models; each batch is read once. Returns a list of per-model results.
-    drops: per model None or the input column indices to zero (drop=)."""
+    drops: per model None or the input column indices to zero (drop=). extras: per model None or the extra
+    column indices to append (xvd= / xagg=; xstats their standardisation)."""
     for m in models:
         m.eval()
     acc = [GlobalAccumulator() for _ in models]
@@ -272,12 +356,15 @@ def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch
     batches = [idx[i:i + batch] for i in range(0, len(idx), batch)]
     for b in Prefetcher(data, batches):
         x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
+        xe = None if extras is None else build_extra(torch.from_numpy(b["features"]).to(device), xstats)
         for i, model in enumerate(models):
             h = None
             preds = []
             xi = x if drops is None else apply_drop(x, drops[i])
+            ei = None if extras is None else extras[i]
             for s in range(0, SEQ_LEN, chunk):
-                p, h = model(xi[:, s:s + chunk], h)
+                xs = xi[:, s:s + chunk] if ei is None else with_extra(xi[:, s:s + chunk], xe[:, s:s + chunk], ei)
+                p, h = model(xs, h)
                 preds.append(p[:, :, :2])  # main targets only; auxiliary outputs are never scored
             preds = torch.cat(preds, 1).float().cpu().numpy()
             for k in range(len(preds)):
@@ -323,8 +410,10 @@ def main():
                   ema_=sp["ema"] or 0.0, noise_=sp["noise"] or 0.0,
                   kd_=sp["kd"] or 0.0, wpow_=1.0 if sp["wpow"] is None else sp["wpow"],
                   chunk_=sp["chunk"] or args.chunk, fdrop_=sp["fdrop"] or 0.0, cls_=sp["cls"] or 0.0,
-                  drop_=sp["drop"] or "")
+                  drop_=sp["drop"] or "", xvd_=sp["xvd"] or "", xagg_=sp["xagg"] or 0)
         sp["drop_idx"] = drop_index(sp["drop_"]) if sp["drop_"] else None
+        sp["extra_idx"] = extra_index(sp["xvd_"], sp["xagg_"])
+        sp["n_in"] = N_IN + (0 if sp["extra_idx"] is None else len(sp["extra_idx"]))
         assert sp["chunk_"] % args.chunk == 0 and SEQ_LEN % sp["chunk_"] == 0, \
             f"chunk {sp['chunk_']}: must be a multiple of --chunk {args.chunk} and divide {SEQ_LEN}"
         sp["custom_loss"] = sp["kd_"] > 0 or sp["wpow_"] != 1
@@ -360,7 +449,9 @@ def main():
                  alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
                  lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"],
                  train_chunk=sp["chunk_"], fdrop=sp["fdrop_"], cls=sp["cls_"], drop=sp["drop_"],
-                 drop_idx=sp["drop_idx"], data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
+                 drop_idx=sp["drop_idx"], xvd=sp["xvd_"], xagg=sp["xagg_"], n_in=sp["n_in"],
+                 extra_cols=None if sp["extra_idx"] is None else [EXTRA_NAMES[j] for j in sp["extra_idx"]],
+                 data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
 
     log(f"args: {vars(args)}; data seed {data_seed}; {len(specs)} models")
@@ -427,6 +518,14 @@ def main():
     t0 = time.time()
     stats = compute_stats(train, np.sort(train_idx[:args.n_stats]), device)
     log(f"input stats from {min(args.n_stats, len(train_idx))} seqs in {time.time() - t0:.1f}s")
+    use_extra = any(sp["extra_idx"] is not None for sp in specs)
+    xstats = None
+    if use_extra:
+        t0 = time.time()
+        xstats = compute_extra_stats(train, np.sort(train_idx[:args.n_stats]), device)
+        log(f"extra-column stats from the same {min(args.n_stats, len(train_idx))} seqs in {time.time() - t0:.1f}s: "
+            + ", ".join(f"{n} {m:.4g}/{s:.4g}" for n, m, s in zip(EXTRA_NAMES, xstats["mean"].tolist(),
+                                                                   xstats["std"].tolist())) + " (mean/std)")
 
     chunks_per_seq = SEQ_LEN // args.chunk
     batches_per_epoch = math.ceil(len(train_idx) / args.batch)
@@ -438,7 +537,7 @@ def main():
         random.seed(sp["seed"])
         torch.manual_seed(sp["seed"])
         torch.cuda.manual_seed_all(sp["seed"])
-        sp["model"] = build_model(sp, sp["hidden_"]).to(device)
+        sp["model"] = build_model(sp, sp["hidden_"], sp["n_in"]).to(device)
         # EMA copy (deepcopy draws no random numbers, so the other models' streams are unaffected)
         sp["ema_model"] = copy.deepcopy(sp["model"]) if sp["ema_"] > 0 else None
         if sp["ema_model"] is not None:
@@ -478,7 +577,10 @@ def main():
                  + (f", classification head weight {sp['cls_']} ({N_BINS} bins on [-2, 2] per target, init seed "
                     f"{CLS_SEED + sp['seed']}, not saved)" if sp["cls_"] > 0 else "")
                  + (f", input groups dropped (set to 0 in training and evaluation): {sp['drop_']} = "
-                    f"{len(sp['drop_idx'])} columns {sp['drop_idx']}" if sp["drop_idx"] else ""))
+                    f"{len(sp['drop_idx'])} columns {sp['drop_idx']}" if sp["drop_idx"] else "")
+                 + (f", extra input columns (xvd {sp['xvd_'] or 'none'}, xagg {sp['xagg_']}): {len(sp['extra_idx'])} "
+                    f"appended, input size {sp['n_in']}: {[EXTRA_NAMES[j] for j in sp['extra_idx']]}"
+                    if sp["extra_idx"] is not None else ""))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
@@ -507,7 +609,10 @@ def main():
         return sp["model"] if sp["ema_model"] is None else sp["ema_model"]
 
     def save(sp, path, rv, rva, rh):
-        torch.save({"model": eval_model(sp).state_dict(), "stats": stats, "args": model_args(sp), "step": step,
+        extra = {} if sp["extra_idx"] is None else {
+            "n_in": sp["n_in"], "extra_cols": [EXTRA_NAMES[j] for j in sp["extra_idx"]],
+            "x_stats": {k: v[sp["extra_idx"]] for k, v in xstats.items()}}
+        torch.save({"model": eval_model(sp).state_dict(), "stats": stats, "args": model_args(sp), "step": step, **extra,
                     "model_step": sp["step"],
                     "valid": rv, "valid_all": rva, "holdout": rh, "price_cols": PRICE_COLS, "other_cols": OTHER_COLS,
                     "flag_cols": FLAG_COLS}, path)
@@ -520,9 +625,12 @@ def main():
         models = [eval_model(sp) for sp in specs] + [sp["model"] for sp in raw]
         drops = [sp["drop_idx"] for sp in specs] + [sp["drop_idx"] for sp in raw]
         drops = None if all(d is None for d in drops) else drops
-        rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True, drops=drops)
+        extras = [sp["extra_idx"] for sp in specs] + [sp["extra_idx"] for sp in raw] if use_extra else None
+        rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True, drops=drops,
+                             extras=extras, xstats=xstats)
         tv = time.time() - te
-        rhs = evaluate_multi(models, train, holdout_idx, stats, device, args.chunk, use_is_scored=False, drops=drops)
+        rhs = evaluate_multi(models, train, holdout_idx, stats, device, args.chunk, use_is_scored=False, drops=drops,
+                             extras=extras, xstats=xstats)
         th = time.time() - te - tv
         for sp, (rv, rva), rh in zip(raw, rvs[len(specs):], rhs[len(specs):]):
             mlog(sp, f"[eval step {step}] raw (non-EMA) weights: valid is_scored wp={rv['weighted_pearson']:.4f} "
@@ -563,6 +671,7 @@ def main():
                 assert a.size == 0 or a.min() > 0.5 and np.abs(a - np.round(a)).max() < 1e-3, f"batch {bi}: targets not of unit {unit_value}"
                 seen += np.bincount(unit_tr[batches[bi]], minlength=4)
             x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
+            xe = build_extra(torch.from_numpy(b["features"]).to(device), xstats) if use_extra else None
             y = torch.from_numpy(b["targets"]).to(device)
             if use_teacher:
                 y_t = torch.stack([torch.from_numpy(b["teacher_t0"]), torch.from_numpy(b["teacher_t1"])], 2).to(device).float()
@@ -604,6 +713,8 @@ def main():
                         keep = (torch.rand(xc.shape[0], 1, N_CONT, device=device, generator=sp["fdrop_gen"]) >= q)
                         xc = torch.cat([xc[:, :, :N_CONT] * keep.float() / (1 - q), xc[:, :, N_CONT:]], dim=2)
                     xc = apply_drop(xc, sp["drop_idx"])  # after noise / fdrop, so the dropped columns are exactly 0
+                    if sp["extra_idx"] is not None:  # appended last: noise, fdrop and drop never touch them
+                        xc = with_extra(xc, xe[:, sl], sp["extra_idx"])
                     if sp["cls_head"] is None:
                         pred, sp["h"] = sp["model"](xc, sp["h"])
                     else:  # the model's own forward, split to reach the GRU output

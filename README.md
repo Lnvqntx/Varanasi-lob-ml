@@ -32,6 +32,11 @@ Wunder Fund (a high-frequency trading firm) gives anonymized real market data fr
 - A strong score on the visible validation subset does not guarantee a strong test score; there is a "private final test".
 - Only the provided train and valid data may be used for training; open-source pre-trained models are allowed if they contain no external market data.
 - Read on Oct 19 (rules and timeline pages): the final ranking is the **Private Leaderboard**. Near the end the team leader selects some previously submitted and scored solutions, which are re-scored on the Final Dataset. Ties go to the earlier submission. So every candidate for the final choice must already have been submitted and scored before Nov 15.
+- Read on Oct 26 (starter-pack docs: data_overview.md, rules.md, faq.md, timeline.md):
+  - Scored rows are `need_prediction AND is_scored`. The test mask is hidden and applied by the platform after inference, and the docs give no rule for how rows are chosen (only "a selected subset of moments"). So we predict every required row as if it were scored.
+  - The number of final selections is not specified: rules.md says only that the team will "choose some" previously submitted and scored solutions.
+  - All deadlines are 11:59 PM UTC, which is 5:29 AM IST the next day. Team merge Nov 1 (from the competition site, read Oct 19; the local timeline.md does not list it), final submission Nov 15 (05:29 IST Nov 16), winners Dec 1.
+  - The bid/ask split is by column index only: p/v 0-10 are bid, 11-21 ask. The index is an identifier, not a depth level.
 
 ---
 
