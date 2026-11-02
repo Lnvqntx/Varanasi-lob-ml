@@ -1,0 +1,256 @@
+Three-model ensembles: wd models of data seeds 0 / 1 / 2 with v7, v9 (wd 0.01 GRUs) and v13 (LSTM); fp32 PyTorch, GPU 0, steps >= 99
+Simple average of raw model outputs, then clipped to [-2, 2]; global weighted Pearson, weights |clipped target|.
+  v18c  wd    data seed 0, init seed 0, wd 0.05: /home/jovyan/work/checkpoints/train_v18c_wd05_nodrop_final.pt (step 64500)
+  v19a  wd    data seed 1, init seed 1, wd 0.1: /home/jovyan/work/checkpoints/train_v19a_wd10_ds1_final.pt (step 64500)
+  v24a  wd    data seed 2, init seed 2, wd 0.05: /home/jovyan/work/checkpoints/train_v24a_ds2_wd05_final.pt (step 64500)
+  v7    wd01  data seed 0, init seed 0, wd 0.01: /home/jovyan/work/checkpoints/train_v7_maskw_a05_h128_e5_fullval_best.pt (step 64500)
+  v9    wd01  data seed 1, init seed 1, wd 0.01: /home/jovyan/work/checkpoints/train_v9_maskw_a05_h128_e5_seed1_best.pt (step 51200)
+  v13   lstm  data seed 0, init seed 0, wd 0.01: /home/jovyan/work/checkpoints/train_v13_lstm_maskw_a05_h128_e5_seed0_best.pt (step 64500)
+  final weights; v7 and v13 _best.pt are their finals (step 64500); v9 is its best (step 51200, no final saved)
+  held out = valid index % 4 == 0 (469 sequences); masked = is_scored rows
+
+Sanity (tolerance 1e-05): all 168 checks pass
+  v18c full masked vs checkpoint: 0.6857267 vs 0.6857267 (-2.2e-16)
+  v18c full all rows vs checkpoint: 0.5138374 vs 0.5138374 (-8.4e-15)
+  v19a full masked vs checkpoint: 0.6855678 vs 0.6855678 (-3.3e-15)
+  v19a full all rows vs checkpoint: 0.5144045 vs 0.5144045 (-9.3e-15)
+  v24a full masked vs checkpoint: 0.6855710 vs 0.6855710 (-2.6e-15)
+  v24a full all rows vs checkpoint: 0.5134952 vs 0.5134952 (-9.9e-15)
+  v7 full masked vs checkpoint: 0.6823789 vs 0.6823789 (-3.0e-15)
+  v7 full all rows vs checkpoint: 0.5097713 vs 0.5097713 (-9.8e-15)
+  v9 full masked vs checkpoint: 0.6826149 vs 0.6826149 (-2.4e-15)
+  v9 full all rows vs checkpoint: 0.5104333 vs 0.5104333 (-9.2e-15)
+  v13 full masked vs checkpoint: 0.6826542 vs 0.6826542 (-8.9e-16)
+  v13 full all rows vs checkpoint: 0.5079927 vs 0.5079927 (-8.4e-15)
+  v7 held masked vs ensemble_check6: 0.6892062 vs 0.6892062 (+0.0e+00)
+  v7 held all vs ensemble_check6: 0.5228873 vs 0.5228873 (+0.0e+00)
+  v7 full masked vs ensemble_check6: 0.6823789 vs 0.6823789 (+0.0e+00)
+  v7 full all vs ensemble_check6: 0.5097713 vs 0.5097713 (+0.0e+00)
+  v9 held masked vs ensemble_check6: 0.6888976 vs 0.6888976 (+0.0e+00)
+  v9 held all vs ensemble_check6: 0.5229594 vs 0.5229594 (+0.0e+00)
+  v9 full masked vs ensemble_check6: 0.6826149 vs 0.6826149 (+0.0e+00)
+  v9 full all vs ensemble_check6: 0.5104333 vs 0.5104333 (+0.0e+00)
+  v13 held masked vs ensemble_check6: 0.6889300 vs 0.6889300 (+0.0e+00)
+  v13 held all vs ensemble_check6: 0.5209909 vs 0.5209909 (+0.0e+00)
+  v13 full masked vs ensemble_check6: 0.6826542 vs 0.6826542 (+0.0e+00)
+  v13 full all vs ensemble_check6: 0.5079927 vs 0.5079927 (+0.0e+00)
+  v7+v13 held masked vs ensemble_check6: 0.6923170 vs 0.6923170 (+0.0e+00)
+  v7+v13 held all vs ensemble_check6: 0.5282779 vs 0.5282779 (+0.0e+00)
+  v7+v13 full masked vs ensemble_check6: 0.6856242 vs 0.6856242 (+0.0e+00)
+  v7+v13 full all vs ensemble_check6: 0.5151366 vs 0.5151366 (+0.0e+00)
+  v9+v13 held masked vs ensemble_check6: 0.6918642 vs 0.6918642 (+0.0e+00)
+  v9+v13 held all vs ensemble_check6: 0.5278841 vs 0.5278841 (+0.0e+00)
+  v9+v13 full masked vs ensemble_check6: 0.6855338 vs 0.6855338 (+0.0e+00)
+  v9+v13 full all vs ensemble_check6: 0.5150949 vs 0.5150949 (+0.0e+00)
+  v7+v9 held masked vs ensemble_check6: 0.6915385 vs 0.6915385 (+0.0e+00)
+  v7+v9 held all vs ensemble_check6: 0.5278034 vs 0.5278034 (+0.0e+00)
+  v7+v9 full masked vs ensemble_check6: 0.6849625 vs 0.6849625 (+0.0e+00)
+  v7+v9 full all vs ensemble_check6: 0.5148677 vs 0.5148677 (+0.0e+00)
+  v7+v9+v13 held masked vs ensemble_check6: 0.6928794 vs 0.6928794 (+0.0e+00)
+  v7+v9+v13 held all vs ensemble_check6: 0.5299311 vs 0.5299311 (+0.0e+00)
+  v7+v9+v13 full masked vs ensemble_check6: 0.6863225 vs 0.6863225 (+0.0e+00)
+  v7+v9+v13 full all vs ensemble_check6: 0.5169497 vs 0.5169497 (+0.0e+00)
+  v7 held masked vs ensemble_check7: 0.6892062 vs 0.6892062 (+0.0e+00)
+  v7 held all vs ensemble_check7: 0.5228873 vs 0.5228873 (+0.0e+00)
+  v7 full masked vs ensemble_check7: 0.6823789 vs 0.6823789 (+0.0e+00)
+  v7 full all vs ensemble_check7: 0.5097713 vs 0.5097713 (+0.0e+00)
+  v9 held masked vs ensemble_check7: 0.6888976 vs 0.6888976 (+0.0e+00)
+  v9 held all vs ensemble_check7: 0.5229594 vs 0.5229594 (+0.0e+00)
+  v9 full masked vs ensemble_check7: 0.6826149 vs 0.6826149 (+0.0e+00)
+  v9 full all vs ensemble_check7: 0.5104333 vs 0.5104333 (+0.0e+00)
+  v13 held masked vs ensemble_check7: 0.6889300 vs 0.6889300 (+0.0e+00)
+  v13 held all vs ensemble_check7: 0.5209909 vs 0.5209909 (+0.0e+00)
+  v13 full masked vs ensemble_check7: 0.6826542 vs 0.6826542 (+0.0e+00)
+  v13 full all vs ensemble_check7: 0.5079927 vs 0.5079927 (+0.0e+00)
+  v7+v9 held masked vs ensemble_check7: 0.6915385 vs 0.6915385 (+0.0e+00)
+  v7+v9 held all vs ensemble_check7: 0.5278034 vs 0.5278034 (+0.0e+00)
+  v7+v9 full masked vs ensemble_check7: 0.6849625 vs 0.6849625 (+0.0e+00)
+  v7+v9 full all vs ensemble_check7: 0.5148677 vs 0.5148677 (+0.0e+00)
+  v7+v13 held masked vs ensemble_check7: 0.6923170 vs 0.6923170 (+0.0e+00)
+  v7+v13 held all vs ensemble_check7: 0.5282779 vs 0.5282779 (+0.0e+00)
+  v7+v13 full masked vs ensemble_check7: 0.6856242 vs 0.6856242 (+0.0e+00)
+  v7+v13 full all vs ensemble_check7: 0.5151366 vs 0.5151366 (+0.0e+00)
+  v7 held masked vs ensemble_check9: 0.6892062 vs 0.6892062 (+0.0e+00)
+  v7 held all vs ensemble_check9: 0.5228873 vs 0.5228873 (+0.0e+00)
+  v7 full masked vs ensemble_check9: 0.6823789 vs 0.6823789 (+0.0e+00)
+  v7 full all vs ensemble_check9: 0.5097713 vs 0.5097713 (+0.0e+00)
+  v9 held masked vs ensemble_check9: 0.6888976 vs 0.6888976 (+0.0e+00)
+  v9 held all vs ensemble_check9: 0.5229594 vs 0.5229594 (+0.0e+00)
+  v9 full masked vs ensemble_check9: 0.6826149 vs 0.6826149 (+0.0e+00)
+  v9 full all vs ensemble_check9: 0.5104333 vs 0.5104333 (+0.0e+00)
+  v18c held masked vs ensemble_check9: 0.6927756 vs 0.6927756 (+0.0e+00)
+  v18c held all vs ensemble_check9: 0.5249990 vs 0.5249990 (+0.0e+00)
+  v18c full masked vs ensemble_check9: 0.6857267 vs 0.6857267 (+0.0e+00)
+  v18c full all vs ensemble_check9: 0.5138374 vs 0.5138374 (+0.0e+00)
+  v19a held masked vs ensemble_check9: 0.6925643 vs 0.6925643 (+0.0e+00)
+  v19a held all vs ensemble_check9: 0.5278490 vs 0.5278490 (+0.0e+00)
+  v19a full masked vs ensemble_check9: 0.6855678 vs 0.6855678 (+0.0e+00)
+  v19a full all vs ensemble_check9: 0.5144045 vs 0.5144045 (+0.0e+00)
+  v7+v9 held masked vs ensemble_check9: 0.6915385 vs 0.6915385 (+0.0e+00)
+  v7+v9 held all vs ensemble_check9: 0.5278034 vs 0.5278034 (+0.0e+00)
+  v7+v9 full masked vs ensemble_check9: 0.6849625 vs 0.6849625 (+0.0e+00)
+  v7+v9 full all vs ensemble_check9: 0.5148677 vs 0.5148677 (+0.0e+00)
+  v7+v18c held masked vs ensemble_check9: 0.6926434 vs 0.6926434 (+0.0e+00)
+  v7+v18c held all vs ensemble_check9: 0.5270938 vs 0.5270938 (+0.0e+00)
+  v7+v18c full masked vs ensemble_check9: 0.6856302 vs 0.6856302 (+0.0e+00)
+  v7+v18c full all vs ensemble_check9: 0.5148702 vs 0.5148702 (+0.0e+00)
+  v7+v19a held masked vs ensemble_check9: 0.6928377 vs 0.6928377 (+0.0e+00)
+  v7+v19a held all vs ensemble_check9: 0.5291838 vs 0.5291838 (+0.0e+00)
+  v7+v19a full masked vs ensemble_check9: 0.6859026 vs 0.6859026 (+0.0e+00)
+  v7+v19a full all vs ensemble_check9: 0.5157684 vs 0.5157684 (+0.0e+00)
+  v9+v18c held masked vs ensemble_check9: 0.6927584 vs 0.6927584 (+0.0e+00)
+  v9+v18c held all vs ensemble_check9: 0.5278598 vs 0.5278598 (+0.0e+00)
+  v9+v18c full masked vs ensemble_check9: 0.6860865 vs 0.6860865 (+0.0e+00)
+  v9+v18c full all vs ensemble_check9: 0.5159393 vs 0.5159393 (+0.0e+00)
+  v9+v19a held masked vs ensemble_check9: 0.6923999 vs 0.6923999 (+0.0e+00)
+  v9+v19a held all vs ensemble_check9: 0.5286112 vs 0.5286112 (+0.0e+00)
+  v9+v19a full masked vs ensemble_check9: 0.6857542 vs 0.6857542 (+0.0e+00)
+  v9+v19a full all vs ensemble_check9: 0.5155508 vs 0.5155508 (+0.0e+00)
+  v18c+v19a held masked vs ensemble_check9: 0.6937848 vs 0.6937848 (+0.0e+00)
+  v18c+v19a held all vs ensemble_check9: 0.5288463 vs 0.5288463 (+0.0e+00)
+  v18c+v19a full masked vs ensemble_check9: 0.6867397 vs 0.6867397 (+0.0e+00)
+  v18c+v19a full all vs ensemble_check9: 0.5164550 vs 0.5164550 (+0.0e+00)
+  v7+v18c+v19a held masked vs ensemble_check9: 0.6936151 vs 0.6936151 (+3.9e-11)
+  v7+v18c+v19a held all vs ensemble_check9: 0.5294292 vs 0.5294292 (-3.9e-12)
+  v7+v18c+v19a full masked vs ensemble_check9: 0.6866039 vs 0.6866039 (+1.9e-11)
+  v7+v18c+v19a full all vs ensemble_check9: 0.5167188 vs 0.5167188 (-2.9e-12)
+  v9+v18c+v19a held masked vs ensemble_check9: 0.6935072 vs 0.6935072 (+3.3e-11)
+  v9+v18c+v19a held all vs ensemble_check9: 0.5295104 vs 0.5295104 (-4.7e-12)
+  v9+v18c+v19a full masked vs ensemble_check9: 0.6867157 vs 0.6867157 (+2.2e-11)
+  v9+v18c+v19a full all vs ensemble_check9: 0.5170259 vs 0.5170259 (-4.0e-12)
+  v7 held masked vs ensemble_check10: 0.6892062 vs 0.6892062 (+0.0e+00)
+  v7 held all vs ensemble_check10: 0.5228873 vs 0.5228873 (+0.0e+00)
+  v7 full masked vs ensemble_check10: 0.6823789 vs 0.6823789 (+0.0e+00)
+  v7 full all vs ensemble_check10: 0.5097713 vs 0.5097713 (+0.0e+00)
+  v9 held masked vs ensemble_check10: 0.6888976 vs 0.6888976 (+0.0e+00)
+  v9 held all vs ensemble_check10: 0.5229594 vs 0.5229594 (+0.0e+00)
+  v9 full masked vs ensemble_check10: 0.6826149 vs 0.6826149 (+0.0e+00)
+  v9 full all vs ensemble_check10: 0.5104333 vs 0.5104333 (+0.0e+00)
+  v18c held masked vs ensemble_check10: 0.6927756 vs 0.6927756 (+0.0e+00)
+  v18c held all vs ensemble_check10: 0.5249990 vs 0.5249990 (+0.0e+00)
+  v18c full masked vs ensemble_check10: 0.6857267 vs 0.6857267 (+0.0e+00)
+  v18c full all vs ensemble_check10: 0.5138374 vs 0.5138374 (+0.0e+00)
+  v19a held masked vs ensemble_check10: 0.6925643 vs 0.6925643 (+0.0e+00)
+  v19a held all vs ensemble_check10: 0.5278490 vs 0.5278490 (+0.0e+00)
+  v19a full masked vs ensemble_check10: 0.6855678 vs 0.6855678 (+0.0e+00)
+  v19a full all vs ensemble_check10: 0.5144045 vs 0.5144045 (+0.0e+00)
+  v24a held masked vs ensemble_check10: 0.6923340 vs 0.6923340 (+0.0e+00)
+  v24a held all vs ensemble_check10: 0.5262075 vs 0.5262075 (+0.0e+00)
+  v24a full masked vs ensemble_check10: 0.6855710 vs 0.6855710 (+0.0e+00)
+  v24a full all vs ensemble_check10: 0.5134952 vs 0.5134952 (+0.0e+00)
+  v7+v9 held masked vs ensemble_check10: 0.6915385 vs 0.6915385 (+0.0e+00)
+  v7+v9 held all vs ensemble_check10: 0.5278034 vs 0.5278034 (+0.0e+00)
+  v7+v9 full masked vs ensemble_check10: 0.6849625 vs 0.6849625 (+0.0e+00)
+  v7+v9 full all vs ensemble_check10: 0.5148677 vs 0.5148677 (+0.0e+00)
+  v7+v18c held masked vs ensemble_check10: 0.6926434 vs 0.6926434 (+0.0e+00)
+  v7+v18c held all vs ensemble_check10: 0.5270938 vs 0.5270938 (+0.0e+00)
+  v7+v18c full masked vs ensemble_check10: 0.6856302 vs 0.6856302 (+0.0e+00)
+  v7+v18c full all vs ensemble_check10: 0.5148702 vs 0.5148702 (+0.0e+00)
+  v7+v19a held masked vs ensemble_check10: 0.6928377 vs 0.6928377 (+0.0e+00)
+  v7+v19a held all vs ensemble_check10: 0.5291838 vs 0.5291838 (+0.0e+00)
+  v7+v19a full masked vs ensemble_check10: 0.6859026 vs 0.6859026 (+0.0e+00)
+  v7+v19a full all vs ensemble_check10: 0.5157684 vs 0.5157684 (+0.0e+00)
+  v7+v24a held masked vs ensemble_check10: 0.6928260 vs 0.6928260 (+0.0e+00)
+  v7+v24a held all vs ensemble_check10: 0.5285342 vs 0.5285342 (+0.0e+00)
+  v7+v24a full masked vs ensemble_check10: 0.6859910 vs 0.6859910 (+0.0e+00)
+  v7+v24a full all vs ensemble_check10: 0.5155284 vs 0.5155284 (+0.0e+00)
+  v9+v18c held masked vs ensemble_check10: 0.6927584 vs 0.6927584 (+0.0e+00)
+  v9+v18c held all vs ensemble_check10: 0.5278598 vs 0.5278598 (+0.0e+00)
+  v9+v18c full masked vs ensemble_check10: 0.6860865 vs 0.6860865 (+0.0e+00)
+  v9+v18c full all vs ensemble_check10: 0.5159393 vs 0.5159393 (+0.0e+00)
+  v9+v19a held masked vs ensemble_check10: 0.6923999 vs 0.6923999 (+0.0e+00)
+  v9+v19a held all vs ensemble_check10: 0.5286112 vs 0.5286112 (+0.0e+00)
+  v9+v19a full masked vs ensemble_check10: 0.6857542 vs 0.6857542 (+0.0e+00)
+  v9+v19a full all vs ensemble_check10: 0.5155508 vs 0.5155508 (+0.0e+00)
+  v9+v24a held masked vs ensemble_check10: 0.6925477 vs 0.6925477 (+0.0e+00)
+  v9+v24a held all vs ensemble_check10: 0.5284417 vs 0.5284417 (+0.0e+00)
+  v9+v24a full masked vs ensemble_check10: 0.6860240 vs 0.6860240 (+0.0e+00)
+  v9+v24a full all vs ensemble_check10: 0.5157709 vs 0.5157709 (+0.0e+00)
+  v18c+v19a held masked vs ensemble_check10: 0.6937848 vs 0.6937848 (+0.0e+00)
+  v18c+v19a held all vs ensemble_check10: 0.5288463 vs 0.5288463 (+0.0e+00)
+  v18c+v19a full masked vs ensemble_check10: 0.6867397 vs 0.6867397 (+0.0e+00)
+  v18c+v19a full all vs ensemble_check10: 0.5164550 vs 0.5164550 (+0.0e+00)
+  v18c+v24a held masked vs ensemble_check10: 0.6938453 vs 0.6938453 (+0.0e+00)
+  v18c+v24a held all vs ensemble_check10: 0.5283167 vs 0.5283167 (+0.0e+00)
+  v18c+v24a full masked vs ensemble_check10: 0.6869248 vs 0.6869248 (+0.0e+00)
+  v18c+v24a full all vs ensemble_check10: 0.5163303 vs 0.5163303 (+0.0e+00)
+  v19a+v24a held masked vs ensemble_check10: 0.6935799 vs 0.6935799 (+0.0e+00)
+  v19a+v24a held all vs ensemble_check10: 0.5294358 vs 0.5294358 (+0.0e+00)
+  v19a+v24a full masked vs ensemble_check10: 0.6867021 vs 0.6867021 (+0.0e+00)
+  v19a+v24a full all vs ensemble_check10: 0.5162756 vs 0.5162756 (+0.0e+00)
+
+Single models
+  gain = subset minus its best member; ref = v18c+v19a (held masked 0.6938, full masked 0.6867); held = the 469, full = all 1,873; ref differences on masked rows
+  subset          recipe/seed          held masked     gain  held all     gain full masked     gain  full all     gain  held-ref  full-ref
+  v18c            wd0                       0.6928             0.5250               0.6857             0.5138            -0.0010   -0.0010
+  v19a            wd1                       0.6926             0.5278               0.6856             0.5144            -0.0012   -0.0012
+  v24a            wd2                       0.6923             0.5262               0.6856             0.5135            -0.0015   -0.0012
+  v7              wd010                     0.6892             0.5229               0.6824             0.5098            -0.0046   -0.0044
+  v9              wd011                     0.6889             0.5230               0.6826             0.5104            -0.0049   -0.0041
+  v13             lstm0                     0.6889             0.5210               0.6827             0.5080            -0.0049   -0.0041
+
+All 15 pairs, sorted by full masked
+  subset          recipe/seed          held masked     gain  held all     gain full masked     gain  full all     gain  held-ref  full-ref
+  v18c+v24a       wd0/wd2                   0.6938  +0.0011    0.5283  +0.0021      0.6869  +0.0012    0.5163  +0.0025   +0.0001   +0.0002
+  v18c+v19a       wd0/wd1                   0.6938  +0.0010    0.5288  +0.0010      0.6867  +0.0010    0.5165  +0.0021   +0.0000   +0.0000
+  v19a+v24a       wd1/wd2                   0.6936  +0.0010    0.5294  +0.0016      0.6867  +0.0011    0.5163  +0.0019   -0.0002   -0.0000
+  v24a+v13        wd2/lstm0                 0.6931  +0.0008    0.5289  +0.0027      0.6866  +0.0010    0.5160  +0.0025   -0.0007   -0.0002
+  v18c+v13        wd0/lstm0                 0.6933  +0.0005    0.5282  +0.0033      0.6865  +0.0008    0.5161  +0.0023   -0.0005   -0.0002
+  v19a+v13        wd1/lstm0                 0.6930  +0.0004    0.5294  +0.0015      0.6863  +0.0007    0.5161  +0.0017   -0.0008   -0.0004
+  v18c+v9         wd0/wd011                 0.6928  -0.0000    0.5279  +0.0029      0.6861  +0.0004    0.5159  +0.0021   -0.0010   -0.0007
+  v24a+v9         wd2/wd011                 0.6925  +0.0002    0.5284  +0.0022      0.6860  +0.0005    0.5158  +0.0023   -0.0012   -0.0007
+  v24a+v7         wd2/wd010                 0.6928  +0.0005    0.5285  +0.0023      0.6860  +0.0004    0.5155  +0.0020   -0.0010   -0.0007
+  v19a+v7         wd1/wd010                 0.6928  +0.0003    0.5292  +0.0013      0.6859  +0.0003    0.5158  +0.0014   -0.0009   -0.0008
+  v19a+v9         wd1/wd011                 0.6924  -0.0002    0.5286  +0.0008      0.6858  +0.0002    0.5156  +0.0011   -0.0014   -0.0010
+  v18c+v7         wd0/wd010                 0.6926  -0.0001    0.5271  +0.0021      0.6856  -0.0001    0.5149  +0.0010   -0.0011   -0.0011
+  v7+v13          wd010/lstm0               0.6923  +0.0031    0.5283  +0.0054      0.6856  +0.0030    0.5151  +0.0054   -0.0015   -0.0011
+  v9+v13          wd011/lstm0               0.6919  +0.0029    0.5279  +0.0049      0.6855  +0.0029    0.5151  +0.0047   -0.0019   -0.0012
+  v7+v9           wd010/wd011               0.6915  +0.0023    0.5278  +0.0048      0.6850  +0.0023    0.5149  +0.0044   -0.0022   -0.0018
+
+20 of 20 triples with members from at least two data seeds or recipes, sorted by full masked
+  gain = subset minus its best member; ref = v18c+v19a (held masked 0.6938, full masked 0.6867); held = the 469, full = all 1,873; ref differences on masked rows
+  subset          recipe/seed          held masked     gain  held all     gain full masked     gain  full all     gain  held-ref  full-ref
+  v18c+v24a+v13   wd0/wd2/lstm0             0.6941  +0.0013    0.5300  +0.0038      0.6873  +0.0016    0.5176  +0.0038   +0.0003   +0.0006
+  v18c+v19a+v24a  wd0/wd1/wd2               0.6941  +0.0014    0.5297  +0.0019      0.6872  +0.0015    0.5172  +0.0028   +0.0003   +0.0004
+  v19a+v24a+v13   wd1/wd2/lstm0             0.6939  +0.0013    0.5307  +0.0028      0.6872  +0.0016    0.5175  +0.0031   +0.0001   +0.0004
+  v18c+v19a+v13   wd0/wd1/lstm0             0.6940  +0.0012    0.5302  +0.0024      0.6872  +0.0014    0.5176  +0.0032   +0.0002   +0.0004
+  v18c+v24a+v9    wd0/wd2/wd011             0.6936  +0.0009    0.5294  +0.0032      0.6869  +0.0012    0.5172  +0.0033   -0.0002   +0.0002
+  v24a+v7+v13     wd2/wd010/lstm0           0.6936  +0.0013    0.5303  +0.0041      0.6869  +0.0013    0.5173  +0.0038   -0.0002   +0.0002
+  v18c+v9+v13     wd0/wd011/lstm0           0.6934  +0.0007    0.5297  +0.0047      0.6869  +0.0011    0.5174  +0.0036   -0.0003   +0.0001
+  v24a+v9+v13     wd2/wd011/lstm0           0.6933  +0.0010    0.5301  +0.0039      0.6869  +0.0013    0.5173  +0.0038   -0.0004   +0.0001
+  v19a+v24a+v7    wd1/wd2/wd010             0.6937  +0.0011    0.5302  +0.0024      0.6868  +0.0012    0.5170  +0.0026   -0.0001   +0.0000
+  v19a+v7+v13     wd1/wd010/lstm0           0.6935  +0.0010    0.5306  +0.0028      0.6868  +0.0012    0.5173  +0.0029   -0.0002   +0.0000
+  v18c+v24a+v7    wd0/wd2/wd010             0.6937  +0.0009    0.5291  +0.0029      0.6867  +0.0010    0.5167  +0.0028   -0.0001   -0.0000
+  v18c+v7+v13     wd0/wd010/lstm0           0.6936  +0.0008    0.5295  +0.0045      0.6867  +0.0010    0.5170  +0.0032   -0.0002   -0.0000
+  v18c+v19a+v9    wd0/wd1/wd011             0.6935  +0.0007    0.5295  +0.0017      0.6867  +0.0010    0.5170  +0.0026   -0.0003   -0.0000
+  v19a+v24a+v9    wd1/wd2/wd011             0.6934  +0.0008    0.5299  +0.0020      0.6867  +0.0011    0.5169  +0.0025   -0.0004   -0.0001
+  v19a+v9+v13     wd1/wd011/lstm0           0.6932  +0.0006    0.5302  +0.0024      0.6866  +0.0011    0.5171  +0.0027   -0.0006   -0.0001
+  v18c+v19a+v7    wd0/wd1/wd010             0.6936  +0.0008    0.5294  +0.0016      0.6866  +0.0009    0.5167  +0.0023   -0.0002   -0.0001
+  v24a+v7+v9      wd2/wd010/wd011           0.6930  +0.0007    0.5297  +0.0035      0.6864  +0.0008    0.5168  +0.0033   -0.0008   -0.0004
+  v7+v9+v13       wd010/wd011/lstm0         0.6929  +0.0037    0.5299  +0.0070      0.6863  +0.0037    0.5169  +0.0065   -0.0009   -0.0004
+  v18c+v7+v9      wd0/wd010/wd011           0.6930  +0.0002    0.5289  +0.0039      0.6862  +0.0005    0.5165  +0.0027   -0.0008   -0.0005
+  v19a+v7+v9      wd1/wd010/wd011           0.6929  +0.0004    0.5299  +0.0020      0.6862  +0.0006    0.5167  +0.0023   -0.0008   -0.0005
+
+Best triple of GRUs only: v18c+v19a+v24a: full masked 0.6872 (+0.0004 vs v18c+v19a), 469 masked 0.6941 (+0.0003); all rows full 0.5172 (+0.0007), 469 0.5297 (+0.0009)
+Best triple overall: v18c+v24a+v13: full masked 0.6873 (+0.0006 vs v18c+v19a), 469 masked 0.6941 (+0.0003); all rows full 0.5176 (+0.0012), 469 0.5300 (+0.0011)
+  best triple on the 469 masked: v18c+v19a+v24a 0.6941
+  best pair (by full masked): v18c+v24a 0.6869
+Build rule (best triple >= +0.0015 over v18c+v19a on all 1,873 and >= 0 on the 469): NOT MET (+0.0006 / +0.0003)
+
+Residual correlation (y - p, both clipped) on the scored rows of the 469, unweighted, mean of t0 and t1
+           v18c   v19a   v24a     v7     v9    v13
+  v18c   1.0000 0.9905 0.9889 0.9864 0.9835 0.9797
+  v19a   0.9905 1.0000 0.9903 0.9836 0.9858 0.9813
+  v24a   0.9889 0.9903 1.0000 0.9830 0.9834 0.9791
+  v7     0.9864 0.9836 0.9830 1.0000 0.9791 0.9739
+  v9     0.9835 0.9858 0.9834 0.9791 1.0000 0.9751
+  v13    0.9797 0.9813 0.9791 0.9739 0.9751 1.0000
+
+Residual correlation (y - p, both clipped) on the scored rows of the 469, |y|-weighted, mean of t0 and t1
+           v18c   v19a   v24a     v7     v9    v13
+  v18c   1.0000 0.9940 0.9930 0.9911 0.9896 0.9870
+  v19a   0.9940 1.0000 0.9939 0.9895 0.9910 0.9881
+  v24a   0.9930 0.9939 1.0000 0.9890 0.9896 0.9866
+  v7     0.9911 0.9895 0.9890 1.0000 0.9867 0.9826
+  v9     0.9896 0.9910 0.9896 0.9867 1.0000 0.9841
+  v13    0.9870 0.9881 0.9866 0.9826 0.9841 1.0000
