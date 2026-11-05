@@ -93,6 +93,15 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
                        steps >= 99, normalised by the summed weights as the default loss
                   Not with aux, kd, wpow, cls or ema. Checkpoints record "ynorm" (mode, units, from_step, labels).
       ynormfix=1  test only: with ynorm, u = 1 everywhere (mode a then reproduces the default loss exactly).
+      loss=L      training loss (default mse; mse is train_v5m.loss_fn, the same code path as no loss= at all):
+                    pearson  1 - mean(r_t0, r_t1), r = the weighted Pearson of the clipped prediction and the clipped
+                             target over all rows of the batch's chunk with step >= 99 (all 16 sequences pooled, as
+                             the metric pools rows), weights |yc| * m (the metric's |yc| times the mask weight)
+                    mix      wMSE / wMSE0 + 1.0 * (1 - mean r): wMSE = the default loss, wMSE0 = the same loss of
+                             the zero prediction on this chunk (detached), so the first term starts at about 1 like the
+                             second; both terms (and the raw wMSE) are logged at every step for the first 50 steps
+                  The Pearson terms are scale- and shift-free, so a pearson model's outputs have an arbitrary scale
+                  (pearson_scale_eval.py fits one global scale afterwards). Not with aux, kd, wpow, cls or ynorm.
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -144,7 +153,8 @@ N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (bu
 OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
            "noise": float, "kd": float, "wpow": float,
            "chunk": int, "fdrop": float, "cls": float, "drop": str, "xvd": str, "xagg": int,
-           "unitemb": int, "unitpred": int, "ynorm": str, "ynormfix": int}
+           "unitemb": int, "unitpred": int, "ynorm": str, "ynormfix": int, "loss": str}
+LOSS_LOG_STEPS = 50  # loss=pearson / mix: per-step lines with each term for the model's first 50 steps
 NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
 FDROP_SEED = 2_000_000  # input-column dropout generator seed = FDROP_SEED + init seed
 CLS_SEED = 3_000_000  # classification head init seed = CLS_SEED + init seed
@@ -306,6 +316,10 @@ def parse_models(spec):
                                   and (m["ema"] or 0) == 0), "ynorm is not supported with aux, kd, wpow, cls or ema"
         assert m["ynormfix"] in (None, 0, 1) and (not m["ynormfix"] or m["ynorm"]), "ynormfix needs ynorm"
         assert not m["unitemb"] or (m["ema"] or 0) == 0, "unitemb is not supported with ema"
+        assert m["loss"] in (None, "mse", "pearson", "mix"), f"loss {m['loss']!r} not mse / pearson / mix"
+        assert m["loss"] in (None, "mse") or (not aux and (m["kd"] or 0) == 0 and (m["wpow"] or 1) == 1
+                                              and (m["cls"] or 0) == 0 and not m["ynorm"]), \
+            "loss=pearson / mix is not supported with aux, kd, wpow, cls or ynorm"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -415,6 +429,39 @@ def ynorm_b_loss(o, y, u, valid, m):
     return (w * (o - yn) ** 2).sum() / w.sum().clamp_min(1e-8)
 
 
+def pearson_terms(pred, y, valid, m):
+    """(2,) weighted Pearson per target of the clipped prediction and target, all rows of the chunk pooled (the metric's
+    formula: weighted means, then weighted covariance / sqrt(variances)), weights |yc| * valid * m."""
+    yc = y.clamp(-2, 2)
+    pc = pred.clamp(-2, 2)
+    w = yc.abs() * valid
+    if m is not None:
+        w = w * m
+    sw = w.sum((0, 1)).clamp_min(1e-8)
+    dy = yc - (w * yc).sum((0, 1)) / sw
+    dp = pc - (w * pc).sum((0, 1)) / sw
+    cov = (w * dy * dp).sum((0, 1)) / sw
+    vy = (w * dy * dy).sum((0, 1)) / sw
+    vp = (w * dp * dp).sum((0, 1)) / sw
+    return cov / (vy * vp + 1e-12).sqrt()
+
+
+def corr_loss(kind, pred, y, valid, m):
+    """loss=pearson / mix. Returns (loss, r (2,), normalised wMSE or None, raw wMSE or None)."""
+    r = pearson_terms(pred, y, valid, m)
+    pl = 1 - r.mean()
+    if kind == "pearson":
+        return pl, r, None, None
+    mse = loss_fn(pred, y, valid, m)
+    yc = y.clamp(-2, 2)
+    w = (yc.abs() + 0.05) * valid
+    if m is not None:
+        w = w * m
+    mse0 = ((w * yc ** 2).sum() / w.sum().clamp_min(1e-8)).detach()  # the zero prediction's wMSE on this chunk
+    mse_n = mse / mse0.clamp_min(1e-8)
+    return mse_n + 1.0 * pl, r, mse_n, mse
+
+
 @torch.no_grad()
 def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25, drops=None, extras=None,
                    xstats=None, units=None):
@@ -501,7 +548,7 @@ def main():
                   chunk_=sp["chunk"] or args.chunk, fdrop_=sp["fdrop"] or 0.0, cls_=sp["cls"] or 0.0,
                   drop_=sp["drop"] or "", xvd_=sp["xvd"] or "", xagg_=sp["xagg"] or 0,
                   unitemb_=sp["unitemb"] or 0, unitpred_=sp["unitpred"] or 0, ynorm_=sp["ynorm"] or "",
-                  ynormfix_=sp["ynormfix"] or 0)
+                  ynormfix_=sp["ynormfix"] or 0, loss_=sp["loss"] or "mse")
         sp["drop_idx"] = drop_index(sp["drop_"]) if sp["drop_"] else None
         sp["extra_idx"] = extra_index(sp["xvd_"], sp["xagg_"])
         sp["n_in"] = N_IN + (0 if sp["extra_idx"] is None else len(sp["extra_idx"])) + sp["unitemb_"]
@@ -541,7 +588,8 @@ def main():
                  lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"],
                  train_chunk=sp["chunk_"], fdrop=sp["fdrop_"], cls=sp["cls_"], drop=sp["drop_"],
                  drop_idx=sp["drop_idx"], xvd=sp["xvd_"], xagg=sp["xagg_"], unitemb=sp["unitemb_"],
-                 unitpred=sp["unitpred_"], ynorm=sp["ynorm_"], ynormfix=sp["ynormfix_"], n_in=sp["n_in"],
+                 unitpred=sp["unitpred_"], ynorm=sp["ynorm_"], ynormfix=sp["ynormfix_"], loss=sp["loss_"],
+                 n_in=sp["n_in"],
                  extra_cols=None if sp["extra_idx"] is None else [EXTRA_NAMES[j] for j in sp["extra_idx"]],
                  data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
@@ -704,7 +752,11 @@ def main():
                  + (f", ynorm {sp['ynorm_']} (prediction clip(o * u, -2, 2), u of the predicted class from step "
                     f"{UNIT_FROM}, 1 before; loss " + ("weighted MSE on o * u" if sp["ynorm_"] == "a" else
                                                         "weighted MSE of o vs yc / u, weights |yc / u| + 0.05") + ")"
-                    + (" with u FIXED to 1 (ynormfix, test only)" if sp["ynormfix_"] else "") if sp["ynorm_"] else ""))
+                    + (" with u FIXED to 1 (ynormfix, test only)" if sp["ynormfix_"] else "") if sp["ynorm_"] else "")
+                 + (", loss 1 - mean weighted Pearson (t0, t1; chunk rows >= 99 pooled, weights |yc| * m, clipped "
+                    "predictions)" if sp["loss_"] == "pearson" else
+                    ", loss wMSE / wMSE(zero prediction, detached) + 1.0 * (1 - mean weighted Pearson)"
+                    if sp["loss_"] == "mix" else ""))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
@@ -720,7 +772,7 @@ def main():
         sp["sched"] = torch.optim.lr_scheduler.LambdaLR(
             sp["opt"], lambda s, T=sp["total"]: 0.5 * (1 + math.cos(math.pi * min(s, T) / T)))
         sp.update(best=-float("inf"), run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, run_cls=0.0, run_k=0,
-                  step=0, t_model=0.0, t_since=0.0)
+                  run_r=0.0, run_mse=0.0, step=0, t_model=0.0, t_since=0.0)
     log(f"{batches_per_epoch} batches/epoch x {chunks_per_seq} chunks = {batches_per_epoch * chunks_per_seq} "
         f"steps/epoch; total optimizer steps {total_steps} per model")
     for sp in specs:
@@ -881,6 +933,17 @@ def main():
                         loss = loss_fn(pred * u, y[:, sl], vm, m)
                     elif sp["ynorm_"] == "b":
                         loss = ynorm_b_loss(pred, y[:, sl], u, vm, m)
+                    elif sp["loss_"] != "mse":
+                        loss, r, mse_n, mse = corr_loss(sp["loss_"], pred, y[:, sl], vm, m)
+                        sp["run_r"] += r.mean().item()
+                        if mse is not None:
+                            sp["run_main"] += mse_n.item()
+                            sp["run_mse"] += mse.item()
+                        if sp["step"] < LOSS_LOG_STEPS:
+                            mlog(sp, f"  step {sp['step'] + 1} loss {loss.item():.4f}: 1 - r {1 - r.mean().item():.4f} "
+                                     f"(r t0 {r[0].item():.4f}, t1 {r[1].item():.4f})"
+                                     + ("" if mse is None else f", wMSE / wMSE0 {mse_n.item():.4f} (wMSE "
+                                                               f"{mse.item():.4f}, wMSE0 {(mse / mse_n).item():.4f})"))
                     elif sp["custom_loss"]:
                         loss, main, teach = kd_loss_fn(pred, y[:, sl], y_t[:, sl] if sp["kd_"] > 0 else None,
                                                        vm, m, sp["kd_"], sp["wpow_"])
@@ -926,6 +989,11 @@ def main():
                         if sp["cls_head"] is not None:
                             parts = (parts[:-1] if parts else f" (main {sp['run_main'] / k:.4f}") \
                                 + f", cls {sp['run_cls'] / k:.4f})"
+                        if sp["loss_"] == "pearson":
+                            parts = f" (batch r {sp['run_r'] / k:.4f})"
+                        elif sp["loss_"] == "mix":
+                            parts = (f" (wMSE / wMSE0 {sp['run_main'] / k:.4f}, 1 - r {1 - sp['run_r'] / k:.4f}, "
+                                     f"wMSE {sp['run_mse'] / k:.4f})")
                         mlog(sp, f"epoch {epoch} step {sp['step']}/{sp['total']} loss {sp['run_loss'] / k:.4f}{parts} "
                                  f"lr {sp['sched'].get_last_lr()[0]:.2e} | {run_n / el:.1f} steps/s wall, "
                                  f"{run_n * args.batch * args.chunk / el:,.0f} seq-steps/s | "
@@ -935,7 +1003,8 @@ def main():
                                                           for sp in specs)
                         + f" steps/s; loader wait so far {t_wait:.1f}s")
                     for sp in specs:
-                        sp.update(run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, run_cls=0.0, run_k=0, t_since=0.0)
+                        sp.update(run_loss=0.0, run_main=0.0, run_aux=0.0, run_teach=0.0, run_cls=0.0, run_r=0.0,
+                                  run_mse=0.0, run_k=0, t_since=0.0)
                     run_n, t_last = 0, time.time()
                 if step % args.eval_every == 0:
                     do_eval()

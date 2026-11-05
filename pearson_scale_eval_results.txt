@@ -1,0 +1,28 @@
+v32 loss=pearson / mix: one global output scale, valid (1873 sequences)
+a* = sum(w y o) / sum(w o^2) on the scored rows (is_scored & step >= 99), w = |y|, y clipped, o raw; scores = global weighted Pearson of the clipped (scaled) prediction
+  v18c  /home/jovyan/work/checkpoints/train_v18c_wd05_nodrop_final.pt (step 64500; loss mse, alpha 0.5, init seed 0, data seed 0)
+  v32a  /home/jovyan/work/checkpoints/train_v32a_pearson_final.pt (step 64500; loss pearson, alpha 0.5, init seed 0, data seed 0)
+  v32b  /home/jovyan/work/checkpoints/train_v32b_mix_final.pt (step 64500; loss mix, alpha 0.5, init seed 0, data seed 0)
+  v32c  /home/jovyan/work/checkpoints/train_v32c_pearson_alpha0_final.pt (step 64500; loss pearson, alpha 0.0, init seed 0, data seed 0)
+
+Sanity (tolerance 1e-05): all 8 checks pass
+  v18c masked vs checkpoint: 0.6857267 vs 0.6857267 (-2.2e-16)
+  v18c all rows vs checkpoint: 0.5138374 vs 0.5138374 (-8.4e-15)
+  v32a masked vs checkpoint: 0.6852223 vs 0.6852223 (-1.9e-15)
+  v32a all rows vs checkpoint: 0.5139000 vs 0.5139000 (-1.1e-14)
+  v32b masked vs checkpoint: 0.6852909 vs 0.6852909 (+6.7e-16)
+  v32b all rows vs checkpoint: 0.5143233 vs 0.5143233 (-1.0e-14)
+  v32c masked vs checkpoint: 0.6841956 vs 0.6841956 (-1.8e-15)
+  v32c all rows vs checkpoint: 0.5038801 vs 0.5038801 (-8.2e-15)
+
+model       a*        a* t0/t1  scored before            after  all>=99 before            after  |o|>2 before/after   weighted sd of o (t0/t1; y 1.339/1.348)
+v18c    0.9928  0.9955/0.9902          0.6857 0.6857 (-0.0000)          0.5138 0.5138 (-0.0000)     0.02%/0.02%       0.914/0.949
+v32a    0.9422  0.9293/0.9551          0.6852 0.6852 (-0.0000)          0.5139 0.5139 (-0.0000)     0.17%/0.07%       0.948/0.978 | vs v18c: scored -0.0005, all +0.0000 (after scaling)
+v32b    0.9988  1.0002/0.9976          0.6853 0.6853 (-0.0000)          0.5143 0.5143 (-0.0000)     0.02%/0.02%       0.905/0.942 | vs v18c: scored -0.0004, all +0.0005 (after scaling)
+v32c    0.9872  0.9610/1.0149          0.6842 0.6842 (-0.0000)          0.5039 0.5039 (-0.0000)     0.07%/0.06%       0.910/0.930 | vs v18c: scored -0.0015, all -0.0100 (after scaling)
+
+t0 / t1 (scored rows, before -> after):
+  v18c   t0 0.6815 -> 0.6815, t1 0.6899 -> 0.6899
+  v32a   t0 0.6814 -> 0.6814, t1 0.6890 -> 0.6890
+  v32b   t0 0.6807 -> 0.6807, t1 0.6899 -> 0.6899
+  v32c   t0 0.6798 -> 0.6798, t1 0.6886 -> 0.6886
