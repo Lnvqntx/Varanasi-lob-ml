@@ -81,6 +81,18 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
       unitpred=1  with unitemb: use the causally PREDICTED class instead (unit_pred.py: LightGBM on the first
                   UNIT_FROM = 20 steps; train sequences out-of-fold, valid from the all-train classifier), and the
                   "unknown" class for steps < 20, in training and evaluation alike, exactly as at inference.
+                  Also the label source of ynorm= (which needs it, with or without unitemb).
+      ynorm=M     target scaling by the sequence's unit u (default none; needs unitpred=1; modes a, b): u is the unit
+                  value of the PREDICTED class (0.125433 / 0.241330 / 0.468536 / 0.656868; unit_pred.py, the same
+                  causal labels as unitpred=1), and u = 1 for steps < UNIT_FROM = 20 (no step < 99 is scored). The
+                  head output o becomes the prediction clip(o * u, -2, 2) in evaluation, so the scores and the
+                  checkpoint's 2 outputs times u stay in raw target units (the exporters do not multiply by u yet).
+                    a  loss = the default weighted MSE on the raw prediction o * u (train_v5m.loss_fn: clipped
+                       prediction and target, weights (|yc| + 0.05) * m, steps >= 99, same normalisation)
+                    b  loss = weighted MSE between o and yc / u (o not clipped), weights (|yc / u| + 0.05) * m,
+                       steps >= 99, normalised by the summed weights as the default loss
+                  Not with aux, kd, wpow, cls or ema. Checkpoints record "ynorm" (mode, units, from_step, labels).
+      ynormfix=1  test only: with ynorm, u = 1 everywhere (mode a then reproduces the default loss exactly).
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -132,7 +144,7 @@ N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (bu
 OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
            "noise": float, "kd": float, "wpow": float,
            "chunk": int, "fdrop": float, "cls": float, "drop": str, "xvd": str, "xagg": int,
-           "unitemb": int, "unitpred": int}
+           "unitemb": int, "unitpred": int, "ynorm": str, "ynormfix": int}
 NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
 FDROP_SEED = 2_000_000  # input-column dropout generator seed = FDROP_SEED + init seed
 CLS_SEED = 3_000_000  # classification head init seed = CLS_SEED + init seed
@@ -140,6 +152,7 @@ N_BINS = 21  # classification head bins over the clipped target range [-2, 2]
 UNIT_SEED = 4_000_000  # unit embedding init seed = UNIT_SEED + init seed
 UNIT_FROM = 20  # unitpred=1: the predicted class is used from this step on ("unknown" before)
 UNIT_UNKNOWN = 4  # embedding row of the "unknown" class (rows 0-3 = the four units)
+UNIT_VALUES = [0.125433, 0.241330, 0.468536, 0.656868]  # unit value of classes 0-3 (unit_probe.UNITS)
 
 
 def input_names():
@@ -286,7 +299,12 @@ def parse_models(spec):
         assert m["xagg"] in (None, 0, 1), f"xagg {m['xagg']} not 0 / 1"
         assert m["unitemb"] is None or m["unitemb"] >= 0, f"unitemb {m['unitemb']} < 0"
         assert m["unitpred"] in (None, 0, 1), f"unitpred {m['unitpred']} not 0 / 1"
-        assert not m["unitpred"] or (m["unitemb"] or 0) > 0, "unitpred needs unitemb > 0"
+        assert not m["unitpred"] or (m["unitemb"] or 0) > 0 or m["ynorm"], "unitpred needs unitemb > 0 or ynorm"
+        assert m["ynorm"] in (None, "a", "b"), f"ynorm {m['ynorm']!r} not a / b"
+        assert not m["ynorm"] or m["unitpred"] == 1, "ynorm needs unitpred=1 (u from the predicted class)"
+        assert not m["ynorm"] or (not aux and (m["kd"] or 0) == 0 and (m["wpow"] or 1) == 1 and (m["cls"] or 0) == 0
+                                  and (m["ema"] or 0) == 0), "ynorm is not supported with aux, kd, wpow, cls or ema"
+        assert m["ynormfix"] in (None, 0, 1) and (not m["ynormfix"] or m["ynorm"]), "ynormfix needs ynorm"
         assert not m["unitemb"] or (m["ema"] or 0) == 0, "unitemb is not supported with ema"
         out.append(m)
         if nxt is not None:
@@ -362,6 +380,7 @@ def load_model(path, device="cpu"):
         emb = torch.nn.Embedding(UNIT_UNKNOWN + 1, ck["unit"]["dim"]).to(device)
         emb.load_state_dict(ck["unit_emb"])
         model.unit_emb = emb
+    model.ynorm = ck.get("ynorm")  # ynorm= settings or None: the prediction is clip(o * u, -2, 2), unit_scale()
     return model.eval(), ck
 
 
@@ -375,17 +394,39 @@ def unit_input(emb, cls, s, e, pred):
     return emb(c)
 
 
+def unit_scale(cls, s, e, fix=False):
+    """(B, e - s, 1) unit value u of the per-sequence classes cls (B,) long tensor for steps s..e-1 (ynorm=), 1 for
+    steps < UNIT_FROM; all ones with fix (ynormfix=1)."""
+    u = torch.tensor(UNIT_VALUES, device=cls.device)[cls][:, None, None].expand(-1, e - s, 1)
+    if fix:
+        return torch.ones_like(u)
+    if s < UNIT_FROM:
+        steps = torch.arange(s, e, device=cls.device)[None, :, None]
+        u = torch.where(steps < UNIT_FROM, torch.ones_like(u), u)
+    return u
+
+
+def ynorm_b_loss(o, y, u, valid, m):
+    """ynorm=b: weighted MSE between the head output o and yc / u, weights (|yc / u| + 0.05) * valid * m."""
+    yn = y.clamp(-2, 2) / u
+    w = (yn.abs() + 0.05) * valid
+    if m is not None:
+        w = w * m
+    return (w * (o - yn) ** 2).sum() / w.sum().clamp_min(1e-8)
+
+
 @torch.no_grad()
 def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25, drops=None, extras=None,
                    xstats=None, units=None):
     """train_v5m.evaluate for K models; each batch is read once. Returns a list of per-model results.
     drops: per model None or the input column indices to zero (drop=). extras: per model None or the extra
     column indices to append (xvd= / xagg=; xstats their standardisation). units: per model None or
-    (embedding, class per sequence of data, pred flag) for unitemb= (appended last)."""
+    (embedding or None, class per sequence of data, pred flag, ynorm flag, ynormfix flag): the embedding (unitemb=)
+    is appended last; with ynorm the prediction is clip(o * u, -2, 2)."""
     for m in models:
         m.eval()
     for u in units or []:
-        if u is not None:
+        if u is not None and u[0] is not None:
             u[0].eval()
     acc = [GlobalAccumulator() for _ in models]
     acc_all = [GlobalAccumulator() for _ in models]
@@ -404,10 +445,13 @@ def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch
                 cls = torch.from_numpy(np.asarray(ui[1][batches[bi]], dtype=np.int64)).to(device)
             for s in range(0, SEQ_LEN, chunk):
                 xs = xi[:, s:s + chunk] if ei is None else with_extra(xi[:, s:s + chunk], xe[:, s:s + chunk], ei)
-                if ui is not None:
+                if ui is not None and ui[0] is not None:
                     xs = torch.cat([xs, unit_input(ui[0], cls, s, s + xs.shape[1], ui[2])], 2)
                 p, h = model(xs, h)
-                preds.append(p[:, :, :2])  # main targets only; auxiliary outputs are never scored
+                p = p[:, :, :2]  # main targets only; auxiliary outputs are never scored
+                if ui is not None and ui[3]:
+                    p = (p * unit_scale(cls, s, s + xs.shape[1], ui[4])).clamp(-2, 2)
+                preds.append(p)
             preds = torch.cat(preds, 1).float().cpu().numpy()
             for k in range(len(preds)):
                 mask = (b["is_scored"][k] & need) if use_is_scored else need
@@ -417,7 +461,7 @@ def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch
     for m in models:
         m.train()
     for u in units or []:
-        if u is not None:
+        if u is not None and u[0] is not None:
             u[0].train()
     return [(a.result(), aa.result()) if use_is_scored else a.result() for a, aa in zip(acc, acc_all)]
 
@@ -456,7 +500,8 @@ def main():
                   kd_=sp["kd"] or 0.0, wpow_=1.0 if sp["wpow"] is None else sp["wpow"],
                   chunk_=sp["chunk"] or args.chunk, fdrop_=sp["fdrop"] or 0.0, cls_=sp["cls"] or 0.0,
                   drop_=sp["drop"] or "", xvd_=sp["xvd"] or "", xagg_=sp["xagg"] or 0,
-                  unitemb_=sp["unitemb"] or 0, unitpred_=sp["unitpred"] or 0)
+                  unitemb_=sp["unitemb"] or 0, unitpred_=sp["unitpred"] or 0, ynorm_=sp["ynorm"] or "",
+                  ynormfix_=sp["ynormfix"] or 0)
         sp["drop_idx"] = drop_index(sp["drop_"]) if sp["drop_"] else None
         sp["extra_idx"] = extra_index(sp["xvd_"], sp["xagg_"])
         sp["n_in"] = N_IN + (0 if sp["extra_idx"] is None else len(sp["extra_idx"])) + sp["unitemb_"]
@@ -496,7 +541,7 @@ def main():
                  lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"],
                  train_chunk=sp["chunk_"], fdrop=sp["fdrop_"], cls=sp["cls_"], drop=sp["drop_"],
                  drop_idx=sp["drop_idx"], xvd=sp["xvd_"], xagg=sp["xagg_"], unitemb=sp["unitemb_"],
-                 unitpred=sp["unitpred_"], n_in=sp["n_in"],
+                 unitpred=sp["unitpred_"], ynorm=sp["ynorm_"], ynormfix=sp["ynormfix_"], n_in=sp["n_in"],
                  extra_cols=None if sp["extra_idx"] is None else [EXTRA_NAMES[j] for j in sp["extra_idx"]],
                  data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
@@ -537,7 +582,7 @@ def main():
         train_idx = train_idx[:20]
         pre_idx = pre_idx[:20]
     log(f"train seqs {len(train_idx)}, train holdout {len(holdout_idx)}, valid subset {len(val_idx)}")
-    use_unit = any(sp["unitemb_"] > 0 for sp in specs)
+    use_unit = any(sp["unitemb_"] > 0 or sp["ynorm_"] for sp in specs)
     if use_unit:  # per-sequence unit classes: true (unit_labels.py) or causally predicted (unit_pred.py)
         from unit_labels import unit_labels
         from unit_pred import pred_path, unit_pred
@@ -555,7 +600,7 @@ def main():
                 f"{np.mean(ptr[holdout_idx] == ttr[holdout_idx]):.5f}; valid {np.mean(pva == tva):.5f}, valid subset "
                 f"{np.mean(pva[val_idx] == tva[val_idx]):.5f}")
         for sp in specs:
-            if sp["unitemb_"] > 0:
+            if sp["unitemb_"] > 0 or sp["ynorm_"]:
                 sp["unit_tr"], sp["unit_va"] = lab["pred" if sp["unitpred_"] else "true"]
 
     train_fit = train
@@ -655,7 +700,11 @@ def main():
                     f"appended, input size {sp['n_in']}: {[EXTRA_NAMES[j] for j in sp['extra_idx']]}"
                     if sp["extra_idx"] is not None else "")
                  + (f", unit embedding size {sp['unitemb_']} ({'predicted class from step ' + str(UNIT_FROM) + ', unknown before' if sp['unitpred_'] else 'true class'}; "
-                    f"init seed {UNIT_SEED + sp['seed']}), input size {sp['n_in']}" if sp["unit_emb"] is not None else ""))
+                    f"init seed {UNIT_SEED + sp['seed']}), input size {sp['n_in']}" if sp["unit_emb"] is not None else "")
+                 + (f", ynorm {sp['ynorm_']} (prediction clip(o * u, -2, 2), u of the predicted class from step "
+                    f"{UNIT_FROM}, 1 before; loss " + ("weighted MSE on o * u" if sp["ynorm_"] == "a" else
+                                                        "weighted MSE of o vs yc / u, weights |yc / u| + 0.05") + ")"
+                    + (" with u FIXED to 1 (ynormfix, test only)" if sp["ynormfix_"] else "") if sp["ynorm_"] else ""))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
@@ -696,6 +745,10 @@ def main():
                 "dim": sp["unitemb_"], "pred": bool(sp["unitpred_"]), "from_step": UNIT_FROM if sp["unitpred_"] else 0,
                 "unknown": UNIT_UNKNOWN, "classes": [0.125433, 0.241330, 0.468536, 0.656868],
                 "labels": "unit_pred.py (LightGBM, first 20 steps)" if sp["unitpred_"] else "unit_labels.py (true)"})
+        if sp["ynorm_"]:
+            extra.update(ynorm={"mode": sp["ynorm_"], "units": UNIT_VALUES, "from_step": UNIT_FROM,
+                                "fix": bool(sp["ynormfix_"]), "labels": "unit_pred.py (LightGBM, first 20 steps)",
+                                "prediction": "clip(o * u, -2, 2), u = 1 for steps < from_step"})
         torch.save({"model": eval_model(sp).state_dict(), "stats": stats, "args": model_args(sp), "step": step, **extra,
                     "model_step": sp["step"],
                     "valid": rv, "valid_all": rva, "holdout": rh, "price_cols": PRICE_COLS, "other_cols": OTHER_COLS,
@@ -711,8 +764,10 @@ def main():
         drops = None if all(d is None for d in drops) else drops
         extras = [sp["extra_idx"] for sp in specs] + [sp["extra_idx"] for sp in raw] if use_extra else None
         # unit models never have an EMA copy (parse_models), so the raw entries get None
-        u_va = [None if sp["unit_emb"] is None else (sp["unit_emb"], sp["unit_va"], sp["unitpred_"]) for sp in specs]
-        u_tr = [None if sp["unit_emb"] is None else (sp["unit_emb"], sp["unit_tr"], sp["unitpred_"]) for sp in specs]
+        u_va = [None if "unit_va" not in sp else (sp["unit_emb"], sp["unit_va"], sp["unitpred_"], bool(sp["ynorm_"]),
+                                                  sp["ynormfix_"]) for sp in specs]
+        u_tr = [None if "unit_tr" not in sp else (sp["unit_emb"], sp["unit_tr"], sp["unitpred_"], bool(sp["ynorm_"]),
+                                                  sp["ynormfix_"]) for sp in specs]
         u_va, u_tr = (u_va + [None] * len(raw), u_tr + [None] * len(raw)) if use_unit else (None, None)
         rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True, drops=drops,
                              extras=extras, xstats=xstats, units=u_va)
@@ -777,7 +832,7 @@ def main():
                 if key and key not in aux:
                     aux[key] = aux_targets(y, sp["offsets"])
                 sp["h"] = None
-                if sp["unit_emb"] is not None:
+                if "unit_tr" in sp:  # unitemb= or ynorm=
                     sp["unit_cls"] = torch.from_numpy(np.asarray(sp["unit_tr"][batches[bi]], dtype=np.int64)).to(device)
             for s in range(0, SEQ_LEN, args.chunk):
                 if step >= total_steps:
@@ -813,6 +868,8 @@ def main():
                         out, sp["h"] = getattr(sp["model"], sp["arch"])(xc, sp["h"])
                         pred = sp["model"].head(out)
                         logits = sp["cls_head"](out)
+                    if sp["ynorm_"]:  # pred = o * u (loss a); loss b compares o with yc / u
+                        u = unit_scale(sp["unit_cls"], e - c, e, sp["ynormfix_"])
                     if sp["offsets"]:
                         y_aux, in_range = aux[tuple(sp["offsets"])]
                         main = loss_fn(pred[:, :, :2], y[:, sl], vm, m)
@@ -820,6 +877,10 @@ def main():
                         loss = main + sp["aux_weight"] * al
                         sp["run_main"] += main.item()
                         sp["run_aux"] += al.item()
+                    elif sp["ynorm_"] == "a":
+                        loss = loss_fn(pred * u, y[:, sl], vm, m)
+                    elif sp["ynorm_"] == "b":
+                        loss = ynorm_b_loss(pred, y[:, sl], u, vm, m)
                     elif sp["custom_loss"]:
                         loss, main, teach = kd_loss_fn(pred, y[:, sl], y_t[:, sl] if sp["kd_"] > 0 else None,
                                                        vm, m, sp["kd_"], sp["wpow_"])
