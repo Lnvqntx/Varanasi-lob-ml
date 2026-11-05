@@ -2,15 +2,19 @@
 
 > **Status as of Nov 5**
 > - **Best submission:** `submission_ens_v18cv19a_int8.zip` (v18c + v19a, two int8 GRU-128): leaderboard **0.65684**, rank **419 of 5,711** (read Nov 5). Valid 0.6867 on all 1,873 sequences, 0.6938 on the 469 held out.
-> - **Fallback candidates, already scored:** `submission_ens_v18cv24a_int8.zip` 0.65596, `submission_ens_v7v9_int8.zip` 0.65542, `submission_v7_int8.zip` 0.65367.
-> - **Running:** nothing. v30, the last run, finished Nov 5 11:13 UTC.
+> - **Second candidate:** `submission_ens_v18cv24a_int8.zip` (v18c + v24a), leaderboard 0.65596. Other scored fallbacks: `submission_ens_v7v9_int8.zip` 0.65542, `submission_v7_int8.zip` 0.65367.
+> - **Modelling is stopped.** Seven experiments in a row (v26 to v32) gave no gain over v18c.
+> - **Running:** nothing. v32, the last run, finished Nov 5 16:15 UTC; its evaluation finished at 16:17.
 > - **Left to do:**
 >   - the 2-8 page report (`REPORT_DRAFT.md`);
->   - the verification package (`REPRODUCE.md`, code, determinism evidence);
->   - off-machine backups of checkpoints, `train_maskp.npy` and the candidate zips;
+>   - off-machine backups of the two zips (v18c + v19a, v18c + v24a) and of the v18c, v19a and v24a checkpoints;
 >   - the final selection, with every candidate submitted and scored by **Nov 14**.
->   - The deadline is Nov 15 23:59 UTC = **Nov 16 05:29 IST**.
-> - **Conclusion:** none of the more than 40 variants trained since Oct 20 beat v18c (0.6857 scored / 0.5138 all rows) by more than seed noise (about 0.0013). The best was +0.0001 (v25b). Two sets are left out of that range: the deliberate input ablations (v27) and the coarse-unit specialist (v21, which was scored in-group only and came out 0.012-0.028 worse). Every other attempt landed between -0.0038 and +0.0001, most of them within 0.002 of v18c. No ensemble beat v18c + v19a by the +0.0015 build rule.
+>   - Final submission day is Nov 15: 23:59 UTC = **Nov 16 05:29 IST**.
+>   - If we reach the top 8: the verification package (`REPRODUCE.md`, code, determinism evidence).
+> - **Conclusion:** none of the more than 40 variants trained since Oct 20 beat v18c (0.6857 scored / 0.5138 all rows) by more than seed noise (about 0.0013). The best was +0.0001 (v25b).
+>   - Three sets fall outside that range: the deliberate input ablations (v27), the coarse-unit specialist (v21, scored in-group only and 0.012-0.028 worse) and the unit-normalised outputs (v31, 0.0035 to 0.0984 worse).
+>   - Every other attempt, v32's Pearson loss included, landed between -0.0038 and +0.0001, most of them within 0.002 of v18c.
+>   - No ensemble beat v18c + v19a by the +0.0015 build rule.
 
 Team **Varanasi**: Alfa Connectome ML Competition (Wunder Fund), limit order book prediction.
 
@@ -547,6 +551,55 @@ No logged work.
    - Rank 1 0.67586, rank 8 (musya) 0.67257, rank 22 0.66950, rank 100 0.66426, rank 200 0.66122, rank 300 about 0.6586.
    - The prize line (rank 8) is +0.0157 away.
 6. **README rewritten** as this daily log.
+7. **v31, unit-normalised outputs**, K = 6 (11:55-13:21 UTC, 86 min; commit 13:36). New `train_multi.py` option `ynorm`.
+   - Why: every target is an integer multiple of its sequence's unit (0.1254 / 0.2413 / 0.4685 / 0.6569), and the coarse unit 0.6569 holds 48% of the metric weight and 66% of the error (unit analysis, Oct 20). The idea was to let the GRU predict in unit counts, with one shared output scale for all four units.
+   - How: the prediction is clip(o * u, -2, 2), where u is the unit of the causally predicted class (`unit_pred.py`; u = 1 before step 20). No targets are used for u.
+     - Mode a keeps the loss unchanged: weighted MSE on o * u.
+     - Mode b fits o to y / u, with weights |y / u| + 0.05.
+     - Smoke tests on GPU 1: the defaults reproduce `train_v2m.py`'s lines (6 of 6), and mode a with u fixed to 1 reproduces the default loss bit for bit.
+   - Finals (scored / all rows; v18c 0.6857 / 0.5138):
+     - **v31a / v31b**, mode a, init seed 0 / 1: 0.5881 / 0.4522 and 0.5873 / 0.4516 (-0.0976 / -0.0984 scored).
+     - **v31c / v31d**, mode b, init seed 0 / 1: 0.6086 / 0.4521 and 0.6084 / 0.4506 (-0.0772 / -0.0773).
+     - **v31e**, mode a plus the 8-wide unit embedding: 0.6822 / 0.5094 (-0.0035).
+     - **v31f**, mode b plus the embedding: 0.6805 / 0.5041 (-0.0052).
+     - All six are below the control.
+   - **In-group scores** (`unit_group_eval2.py`, 13:22-13:24, run alone; 22 sanity checks pass; `unit_group_eval2_results.txt`).
+     - Coarse unit 0.6569, scored rows: v18c 0.4334; v31a 0.4311, v31b 0.4312, v31c 0.4051, v31d 0.4056, v31e 0.4320, v31f 0.4224.
+     - No v31 model beats v18c in any unit group on scored rows.
+     - Within each group, mode a is only 0.002-0.006 below v18c, yet 0.098 below overall. So most of the loss comes from how the four groups combine in the pooled metric, not from the fit inside each group.
+   - **Conclusion:** one output scale shared across units, in unit counts, does not help. Our reading, not tested directly: the regimes differ in their tick structure, not just in size.
+   - Not submittable as is: the exporters do not multiply by u.
+8. **Research and Discord review** (evening IST; the time is not logged).
+   - What we read:
+     - the public Discord chat;
+     - LOB papers (DeepLOB / TLOB-style models, and a paper on crypto LOB inputs);
+     - contest write-ups and repos (Jane Street, Optiver, Ubiquant, DRW, and earlier Wunder challenges).
+   - What others report:
+     - the same plateau, about +0.001 per idea;
+     - distillation does not help;
+     - a public-versus-local gap of 0.015 to 0.027 is normal. Ours is about 0.03 (v18c + v19a: 0.6867 on valid, 0.65684 public).
+     - Nobody discloses a single big idea.
+   - **Incomplete:** the Kaggle write-up pages could not be read.
+   - Ideas we had already tested:
+     - distillation (v25, at best +0.0001);
+     - ensembles (ensemble_check10 / 11);
+     - EMA (v20a);
+     - input noise and feature dropout (v22, v26c / d);
+     - longer training and backprop (v23, v26a / b);
+     - order-flow inputs (v28);
+     - classification heads (v26e / f);
+     - regime (unit) inputs (v30, v31).
+   - The one new idea was training on the metric itself (a Pearson loss), tested as v32.
+9. **v32, Pearson loss**, K = 3 (14:51-16:15 UTC, 84 min; commit 26482d9 at 16:18). New `train_multi.py` option `loss`.
+   - pearson = 1 - mean(r_t0, r_t1), the weighted Pearson over all rows >= 99 of the batch's chunk, pooled, with weights |y| * m. Hand check: it equals the metric's own accumulator on the same rows to 1e-12.
+   - mix = wMSE / wMSE(zero prediction) + (1 - r).
+   - Finals (scored / all rows; v18c 0.6857 / 0.5138):
+     - **v32a**, pearson: 0.6852 / 0.5139 (-0.0005 / +0.0001).
+     - **v32b**, mix: 0.6853 / 0.5143 (-0.0004 / +0.0005).
+     - **v32c**, pearson with alpha 0.0: 0.6842 / 0.5039 (-0.0015 / -0.0100). This is the same pattern as v8c, wMSE with alpha 0.0, which lost 0.0089 on all rows against v4.
+   - Output scale: a* = Σ w y o / Σ w o² on valid scored rows is 0.94-1.00 for all three (v18c 0.99). Scaling changes no score by more than 0.0001 (`pearson_scale_eval.py`, 16:15-16:17, run alone; 8 sanity checks pass).
+   - **No gain.** wMSE with these weights already tracks the metric.
+10. **Modelling stopped.** Seven experiments in a row (v26 to v32) gave no gain over v18c.
 
 ### Reference tables
 
@@ -741,6 +794,7 @@ Our rank at 0.65684 has since drifted as other teams improved: 398 of 5,660 (Nov
 Done (kept for the record):
 - Up to Oct 21: the mask is predictable and mask weighting works; weight decay 0.05-0.1 is the one knob that helped; the rules and prize pages were read.
 - Oct 21 to Nov 5: the specialist, a third data seed, distillation, input ablations and extra inputs, a sharper mask model, three-model ensembles (ensemble_check11) and a unit embedding (v30) did not help (section 3, daily log Oct 21 to Nov 5). The search is closed.
+- Nov 5, closed: unit embedding (v30, -0.0004 to -0.0010), unit-normalised outputs (v31, -0.0035 to -0.0984) and a Pearson loss (v32, -0.0004 to -0.0015) did not help. Modelling is stopped.
 - v18c+v24a was submitted and scored 0.65596, so it is a scored fallback candidate.
 
 Final phase (deadline Nov 15, 11:59 PM UTC = 05:29 IST Nov 16; aim to finish everything by **Nov 14**):
