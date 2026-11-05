@@ -70,6 +70,17 @@ architecture, auxiliary heads, AdamW optimizer, cosine schedule, loss, log file 
                   to the 168. The model's input size grows (168 + 44 / 22, + 6); checkpoints record "n_in", the extra
                   column names and their stats ("x_stats"), and load_model() rebuilds such a model. The exporters
                   do not build the extra columns: these models are experiments, not submissions yet.
+      unitemb=E   unit-class input (default 0 = off): the sequence's target unit class (0-3 for 0.1254 / 0.2413 /
+                  0.4685 / 0.6569) goes through a learned embedding of size E (torch.nn.Embedding with 5 rows, row 4
+                  = "unknown"), appended to the input at every step after the 168 (and after any extra columns); the
+                  input size grows by E. Labels: unit_labels.py (the true unit, read from the targets). The embedding
+                  is initialised from its own seed (UNIT_SEED + init seed, on a forked CPU RNG, after the model),
+                  trained with the model's optimizer (same weight decay) and saved in the checkpoints as
+                  "unit_emb" (state dict) with "unit" (settings) and "n_in"; load_model() attaches it as
+                  model.unit_emb. Not with ema.
+      unitpred=1  with unitemb: use the causally PREDICTED class instead (unit_pred.py: LightGBM on the first
+                  UNIT_FROM = 20 steps; train sequences out-of-fold, valid from the all-train classifier), and the
+                  "unknown" class for steps < 20, in training and evaluation alike, exactly as at inference.
     e.g. "v16a:0:gru::0:dropout=0.1:wd=0.05,v16b:0:gru::0:alpha=0.75,v16c:0:gru::0:layers=3"
     With all defaults a model is built exactly as in train_v5m.py (same class, same RNG use).
 --data-seed (default: the first model's seed) seeds the data stream exactly as --seed does in
@@ -120,11 +131,15 @@ N_CONT = len(PRICE_COLS) * 2 + len(OTHER_COLS)  # standardised input columns (bu
 
 OPTIONS = {"alpha": float, "layers": int, "dropout": float, "wd": float, "lr": float, "hidden": int, "ema": float,
            "noise": float, "kd": float, "wpow": float,
-           "chunk": int, "fdrop": float, "cls": float, "drop": str, "xvd": str, "xagg": int}
+           "chunk": int, "fdrop": float, "cls": float, "drop": str, "xvd": str, "xagg": int,
+           "unitemb": int, "unitpred": int}
 NOISE_SEED = 1_000_000  # noise generator seed = NOISE_SEED + the model's init seed
 FDROP_SEED = 2_000_000  # input-column dropout generator seed = FDROP_SEED + init seed
 CLS_SEED = 3_000_000  # classification head init seed = CLS_SEED + init seed
 N_BINS = 21  # classification head bins over the clipped target range [-2, 2]
+UNIT_SEED = 4_000_000  # unit embedding init seed = UNIT_SEED + init seed
+UNIT_FROM = 20  # unitpred=1: the predicted class is used from this step on ("unknown" before)
+UNIT_UNKNOWN = 4  # embedding row of the "unknown" class (rows 0-3 = the four units)
 
 
 def input_names():
@@ -269,6 +284,10 @@ def parse_models(spec):
         assert not aux or (m["cls"] or 0) == 0, "cls needs a model without aux heads"
         assert m["xvd"] in (None, "all", "i1"), f"xvd {m['xvd']!r} not all / i1"
         assert m["xagg"] in (None, 0, 1), f"xagg {m['xagg']} not 0 / 1"
+        assert m["unitemb"] is None or m["unitemb"] >= 0, f"unitemb {m['unitemb']} < 0"
+        assert m["unitpred"] in (None, 0, 1), f"unitpred {m['unitpred']} not 0 / 1"
+        assert not m["unitpred"] or (m["unitemb"] or 0) > 0, "unitpred needs unitemb > 0"
+        assert not m["unitemb"] or (m["ema"] or 0) == 0, "unitemb is not supported with ema"
         out.append(m)
         if nxt is not None:
             tok[i - 1] = nxt  # the next model starts at the name peeled off this field
@@ -333,28 +352,46 @@ def build_model(sp, hidden, n_in=N_IN):
 
 def load_model(path, device="cpu"):
     """Rebuild a train_multi checkpoint's model (input size from "n_in", 168 for older checkpoints).
-    Returns (model in eval mode, checkpoint dict)."""
+    Returns (model in eval mode, checkpoint dict). A unitemb= model also gets its embedding as model.unit_emb."""
     ck = torch.load(path, map_location=device, weights_only=False)
     a = ck["args"]
     sp = {"offsets": parse_offsets(a.get("aux", "")), "layers": a.get("layers", 2), "dropout": 0.0, "arch": a["arch"]}
     model = build_model(sp, a["hidden"], ck.get("n_in", N_IN)).to(device)
     model.load_state_dict(ck["model"])
+    if "unit_emb" in ck:
+        emb = torch.nn.Embedding(UNIT_UNKNOWN + 1, ck["unit"]["dim"]).to(device)
+        emb.load_state_dict(ck["unit_emb"])
+        model.unit_emb = emb
     return model.eval(), ck
+
+
+def unit_input(emb, cls, s, e, pred):
+    """(B, e - s, E) embedding of the per-sequence unit classes cls (B,) long tensor for steps s..e-1; with pred,
+    the "unknown" class for steps < UNIT_FROM."""
+    c = cls[:, None].expand(-1, e - s)
+    if pred and s < UNIT_FROM:
+        steps = torch.arange(s, e, device=cls.device)[None, :]
+        c = torch.where(steps < UNIT_FROM, torch.full_like(c, UNIT_UNKNOWN), c)
+    return emb(c)
 
 
 @torch.no_grad()
 def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch=25, drops=None, extras=None,
-                   xstats=None):
+                   xstats=None, units=None):
     """train_v5m.evaluate for K models; each batch is read once. Returns a list of per-model results.
     drops: per model None or the input column indices to zero (drop=). extras: per model None or the extra
-    column indices to append (xvd= / xagg=; xstats their standardisation)."""
+    column indices to append (xvd= / xagg=; xstats their standardisation). units: per model None or
+    (embedding, class per sequence of data, pred flag) for unitemb= (appended last)."""
     for m in models:
         m.eval()
+    for u in units or []:
+        if u is not None:
+            u[0].eval()
     acc = [GlobalAccumulator() for _ in models]
     acc_all = [GlobalAccumulator() for _ in models]
     need = np.arange(SEQ_LEN) >= WARMUP
     batches = [idx[i:i + batch] for i in range(0, len(idx), batch)]
-    for b in Prefetcher(data, batches):
+    for bi, b in enumerate(Prefetcher(data, batches)):
         x = build_inputs(torch.from_numpy(b["prices"]).to(device), torch.from_numpy(b["features"]).to(device), stats)
         xe = None if extras is None else build_extra(torch.from_numpy(b["features"]).to(device), xstats)
         for i, model in enumerate(models):
@@ -362,8 +399,13 @@ def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch
             preds = []
             xi = x if drops is None else apply_drop(x, drops[i])
             ei = None if extras is None else extras[i]
+            ui = None if units is None else units[i]
+            if ui is not None:
+                cls = torch.from_numpy(np.asarray(ui[1][batches[bi]], dtype=np.int64)).to(device)
             for s in range(0, SEQ_LEN, chunk):
                 xs = xi[:, s:s + chunk] if ei is None else with_extra(xi[:, s:s + chunk], xe[:, s:s + chunk], ei)
+                if ui is not None:
+                    xs = torch.cat([xs, unit_input(ui[0], cls, s, s + xs.shape[1], ui[2])], 2)
                 p, h = model(xs, h)
                 preds.append(p[:, :, :2])  # main targets only; auxiliary outputs are never scored
             preds = torch.cat(preds, 1).float().cpu().numpy()
@@ -374,6 +416,9 @@ def evaluate_multi(models, data, idx, stats, device, chunk, use_is_scored, batch
                     acc_all[i].add(b["targets"][k], preds[k], need)
     for m in models:
         m.train()
+    for u in units or []:
+        if u is not None:
+            u[0].train()
     return [(a.result(), aa.result()) if use_is_scored else a.result() for a, aa in zip(acc, acc_all)]
 
 
@@ -410,10 +455,11 @@ def main():
                   ema_=sp["ema"] or 0.0, noise_=sp["noise"] or 0.0,
                   kd_=sp["kd"] or 0.0, wpow_=1.0 if sp["wpow"] is None else sp["wpow"],
                   chunk_=sp["chunk"] or args.chunk, fdrop_=sp["fdrop"] or 0.0, cls_=sp["cls"] or 0.0,
-                  drop_=sp["drop"] or "", xvd_=sp["xvd"] or "", xagg_=sp["xagg"] or 0)
+                  drop_=sp["drop"] or "", xvd_=sp["xvd"] or "", xagg_=sp["xagg"] or 0,
+                  unitemb_=sp["unitemb"] or 0, unitpred_=sp["unitpred"] or 0)
         sp["drop_idx"] = drop_index(sp["drop_"]) if sp["drop_"] else None
         sp["extra_idx"] = extra_index(sp["xvd_"], sp["xagg_"])
-        sp["n_in"] = N_IN + (0 if sp["extra_idx"] is None else len(sp["extra_idx"]))
+        sp["n_in"] = N_IN + (0 if sp["extra_idx"] is None else len(sp["extra_idx"])) + sp["unitemb_"]
         assert sp["chunk_"] % args.chunk == 0 and SEQ_LEN % sp["chunk_"] == 0, \
             f"chunk {sp['chunk_']}: must be a multiple of --chunk {args.chunk} and divide {SEQ_LEN}"
         sp["custom_loss"] = sp["kd_"] > 0 or sp["wpow_"] != 1
@@ -449,7 +495,8 @@ def main():
                  alpha=sp["alpha_"], layers=sp["layers_"], dropout=sp["dropout_"], wd=sp["wd_"],
                  lr=sp["lr_"], hidden=sp["hidden_"], ema=sp["ema_"], noise=sp["noise_"], kd=sp["kd_"], wpow=sp["wpow_"],
                  train_chunk=sp["chunk_"], fdrop=sp["fdrop_"], cls=sp["cls_"], drop=sp["drop_"],
-                 drop_idx=sp["drop_idx"], xvd=sp["xvd_"], xagg=sp["xagg_"], n_in=sp["n_in"],
+                 drop_idx=sp["drop_idx"], xvd=sp["xvd_"], xagg=sp["xagg_"], unitemb=sp["unitemb_"],
+                 unitpred=sp["unitpred_"], n_in=sp["n_in"],
                  extra_cols=None if sp["extra_idx"] is None else [EXTRA_NAMES[j] for j in sp["extra_idx"]],
                  data_seed=data_seed, multi_run=run, multi_models=[s["name"] for s in specs])
         return a
@@ -490,6 +537,26 @@ def main():
         train_idx = train_idx[:20]
         pre_idx = pre_idx[:20]
     log(f"train seqs {len(train_idx)}, train holdout {len(holdout_idx)}, valid subset {len(val_idx)}")
+    use_unit = any(sp["unitemb_"] > 0 for sp in specs)
+    if use_unit:  # per-sequence unit classes: true (unit_labels.py) or causally predicted (unit_pred.py)
+        from unit_labels import unit_labels
+        from unit_pred import pred_path, unit_pred
+        lab = {"true": (unit_labels("train"), unit_labels("valid"))}
+        if any(sp["unitpred_"] for sp in specs):
+            lab["pred"] = (unit_pred("train"), unit_pred("valid"))
+        for k, (ltr, lva) in lab.items():
+            assert len(ltr) == train["prices"].shape[0] and len(lva) == valid["prices"].shape[0], k
+            assert ltr.min() >= 0 and ltr.max() < UNIT_UNKNOWN and lva.min() >= 0 and lva.max() < UNIT_UNKNOWN, k
+        if "pred" in lab:
+            (ttr, tva), (ptr, pva) = lab["true"], lab["pred"]
+            log(f"unit classes: predicted ({pred_path('train')}, out-of-fold; {pred_path('valid')}) vs true "
+                f"(unit_labels.py): train accuracy {np.mean(ptr == ttr):.5f} ({np.sum(ptr != ttr)} wrong), on the "
+                f"training seqs {np.mean(ptr[train_idx] == ttr[train_idx]):.5f}, holdout "
+                f"{np.mean(ptr[holdout_idx] == ttr[holdout_idx]):.5f}; valid {np.mean(pva == tva):.5f}, valid subset "
+                f"{np.mean(pva[val_idx] == tva[val_idx]):.5f}")
+        for sp in specs:
+            if sp["unitemb_"] > 0:
+                sp["unit_tr"], sp["unit_va"] = lab["pred" if sp["unitpred_"] else "true"]
 
     train_fit = train
     mean_p = None
@@ -561,6 +628,12 @@ def main():
                 torch.manual_seed(CLS_SEED + sp["seed"])
                 sp["cls_head"] = torch.nn.Linear(sp["hidden_"], 2 * N_BINS)
             sp["cls_head"] = sp["cls_head"].to(device)
+        sp["unit_emb"] = None
+        if sp["unitemb_"] > 0:  # own seed on a forked CPU RNG, so the global torch stream is untouched
+            with torch.random.fork_rng(devices=[]):
+                torch.manual_seed(UNIT_SEED + sp["seed"])
+                sp["unit_emb"] = torch.nn.Embedding(UNIT_UNKNOWN + 1, sp["unitemb_"])
+            sp["unit_emb"] = sp["unit_emb"].to(device)
         sp["total"] = int(args.epochs * batches_per_epoch * (SEQ_LEN // sp["chunk_"]))
         if args.max_steps is not None:
             sp["total"] = min(sp["total"], args.max_steps * args.chunk // sp["chunk_"])
@@ -580,14 +653,20 @@ def main():
                     f"{len(sp['drop_idx'])} columns {sp['drop_idx']}" if sp["drop_idx"] else "")
                  + (f", extra input columns (xvd {sp['xvd_'] or 'none'}, xagg {sp['xagg_']}): {len(sp['extra_idx'])} "
                     f"appended, input size {sp['n_in']}: {[EXTRA_NAMES[j] for j in sp['extra_idx']]}"
-                    if sp["extra_idx"] is not None else ""))
+                    if sp["extra_idx"] is not None else "")
+                 + (f", unit embedding size {sp['unitemb_']} ({'predicted class from step ' + str(UNIT_FROM) + ', unknown before' if sp['unitpred_'] else 'true class'}; "
+                    f"init seed {UNIT_SEED + sp['seed']}), input size {sp['n_in']}" if sp["unit_emb"] is not None else ""))
         if sp["offsets"]:
             mlog(sp, f"auxiliary heads: offsets {sp['offsets']}, weight {sp['aux_weight']} each; "
                      f"head outputs {2 + 2 * len(sp['offsets'])}")
         mlog(sp, f"params: {sum(p.numel() for p in sp['model'].parameters()):,}")
+        if sp["unit_emb"] is not None:
+            mlog(sp, f"unit embedding params: {sum(p.numel() for p in sp['unit_emb'].parameters()):,}")
         sp["params"] = list(sp["model"].parameters()) + (
-            [] if sp["cls_head"] is None else list(sp["cls_head"].parameters()))
-        sp["opt"] = torch.optim.AdamW(sp["model"].parameters() if sp["cls_head"] is None else sp["params"],
+            [] if sp["cls_head"] is None else list(sp["cls_head"].parameters())) + (
+            [] if sp["unit_emb"] is None else list(sp["unit_emb"].parameters()))
+        sp["extra_params"] = sp["cls_head"] is not None or sp["unit_emb"] is not None
+        sp["opt"] = torch.optim.AdamW(sp["params"] if sp["extra_params"] else sp["model"].parameters(),
                                       lr=sp["lr_"], weight_decay=sp["wd_"])
         sp["sched"] = torch.optim.lr_scheduler.LambdaLR(
             sp["opt"], lambda s, T=sp["total"]: 0.5 * (1 + math.cos(math.pi * min(s, T) / T)))
@@ -612,6 +691,11 @@ def main():
         extra = {} if sp["extra_idx"] is None else {
             "n_in": sp["n_in"], "extra_cols": [EXTRA_NAMES[j] for j in sp["extra_idx"]],
             "x_stats": {k: v[sp["extra_idx"]] for k, v in xstats.items()}}
+        if sp["unit_emb"] is not None:
+            extra.update(n_in=sp["n_in"], unit_emb=sp["unit_emb"].state_dict(), unit={
+                "dim": sp["unitemb_"], "pred": bool(sp["unitpred_"]), "from_step": UNIT_FROM if sp["unitpred_"] else 0,
+                "unknown": UNIT_UNKNOWN, "classes": [0.125433, 0.241330, 0.468536, 0.656868],
+                "labels": "unit_pred.py (LightGBM, first 20 steps)" if sp["unitpred_"] else "unit_labels.py (true)"})
         torch.save({"model": eval_model(sp).state_dict(), "stats": stats, "args": model_args(sp), "step": step, **extra,
                     "model_step": sp["step"],
                     "valid": rv, "valid_all": rva, "holdout": rh, "price_cols": PRICE_COLS, "other_cols": OTHER_COLS,
@@ -626,11 +710,15 @@ def main():
         drops = [sp["drop_idx"] for sp in specs] + [sp["drop_idx"] for sp in raw]
         drops = None if all(d is None for d in drops) else drops
         extras = [sp["extra_idx"] for sp in specs] + [sp["extra_idx"] for sp in raw] if use_extra else None
+        # unit models never have an EMA copy (parse_models), so the raw entries get None
+        u_va = [None if sp["unit_emb"] is None else (sp["unit_emb"], sp["unit_va"], sp["unitpred_"]) for sp in specs]
+        u_tr = [None if sp["unit_emb"] is None else (sp["unit_emb"], sp["unit_tr"], sp["unitpred_"]) for sp in specs]
+        u_va, u_tr = (u_va + [None] * len(raw), u_tr + [None] * len(raw)) if use_unit else (None, None)
         rvs = evaluate_multi(models, valid, val_idx, stats, device, args.chunk, use_is_scored=True, drops=drops,
-                             extras=extras, xstats=xstats)
+                             extras=extras, xstats=xstats, units=u_va)
         tv = time.time() - te
         rhs = evaluate_multi(models, train, holdout_idx, stats, device, args.chunk, use_is_scored=False, drops=drops,
-                             extras=extras, xstats=xstats)
+                             extras=extras, xstats=xstats, units=u_tr)
         th = time.time() - te - tv
         for sp, (rv, rva), rh in zip(raw, rvs[len(specs):], rhs[len(specs):]):
             mlog(sp, f"[eval step {step}] raw (non-EMA) weights: valid is_scored wp={rv['weighted_pearson']:.4f} "
@@ -689,6 +777,8 @@ def main():
                 if key and key not in aux:
                     aux[key] = aux_targets(y, sp["offsets"])
                 sp["h"] = None
+                if sp["unit_emb"] is not None:
+                    sp["unit_cls"] = torch.from_numpy(np.asarray(sp["unit_tr"][batches[bi]], dtype=np.int64)).to(device)
             for s in range(0, SEQ_LEN, args.chunk):
                 if step >= total_steps:
                     break
@@ -715,6 +805,8 @@ def main():
                     xc = apply_drop(xc, sp["drop_idx"])  # after noise / fdrop, so the dropped columns are exactly 0
                     if sp["extra_idx"] is not None:  # appended last: noise, fdrop and drop never touch them
                         xc = with_extra(xc, xe[:, sl], sp["extra_idx"])
+                    if sp["unit_emb"] is not None:  # after the extra columns
+                        xc = torch.cat([xc, unit_input(sp["unit_emb"], sp["unit_cls"], e - c, e, sp["unitpred_"])], 2)
                     if sp["cls_head"] is None:
                         pred, sp["h"] = sp["model"](xc, sp["h"])
                     else:  # the model's own forward, split to reach the GRU output
@@ -744,7 +836,7 @@ def main():
                         sp["run_cls"] += cl.item()
                     sp["opt"].zero_grad(set_to_none=True)
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(sp["model"].parameters() if sp["cls_head"] is None else sp["params"],
+                    torch.nn.utils.clip_grad_norm_(sp["params"] if sp["extra_params"] else sp["model"].parameters(),
                                                    1.0)
                     sp["opt"].step()
                     sp["sched"].step()

@@ -1,0 +1,17 @@
+Predicted unit class from the first 20 steps (LightGBM, unit_probe.py parameters, 200 rounds); labels from unit_labels.py
+
+train, 5-fold out-of-fold (stratified by unit, seed 0): accuracy 0.99991 (1 wrong of 10607); wrong sequences [3018]
+    true\pred 0.125433  0.24133 0.468536 0.656868
+     0.125433     1305        0        0        0
+      0.24133        0     1257        0        0
+     0.468536        0        0     3488        0
+     0.656868        0        0        1     4556
+
+valid, classifier fit on all train: accuracy 1.00000 (0 wrong of 1873); wrong sequences []
+    true\pred 0.125433  0.24133 0.468536 0.656868
+     0.125433      398        0        0        0
+      0.24133        0      347        0        0
+     0.468536        0        0      431        0
+     0.656868        0        0        0      697
+
+(run time 180s)
