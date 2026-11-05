@@ -1,5 +1,17 @@
 # Varanasi LOB ML
 
+> **Status as of Nov 5**
+> - **Best submission:** `submission_ens_v18cv19a_int8.zip` (v18c + v19a, two int8 GRU-128): leaderboard **0.65684**, rank **419 of 5,711** (read Nov 5). Valid 0.6867 on all 1,873 sequences, 0.6938 on the 469 held out.
+> - **Fallback candidates, already scored:** `submission_ens_v18cv24a_int8.zip` 0.65596, `submission_ens_v7v9_int8.zip` 0.65542, `submission_v7_int8.zip` 0.65367.
+> - **Running:** nothing. v30, the last run, finished Nov 5 11:13 UTC.
+> - **Left to do:**
+>   - the 2-8 page report (`REPORT_DRAFT.md`);
+>   - the verification package (`REPRODUCE.md`, code, determinism evidence);
+>   - off-machine backups of checkpoints, `train_maskp.npy` and the candidate zips;
+>   - the final selection, with every candidate submitted and scored by **Nov 14**.
+>   - The deadline is Nov 15 23:59 UTC = **Nov 16 05:29 IST**.
+> - **Conclusion:** none of the more than 40 variants trained since Oct 20 beat v18c (0.6857 scored / 0.5138 all rows) by more than seed noise (about 0.0013). The best was +0.0001 (v25b). Two sets are left out of that range: the deliberate input ablations (v27) and the coarse-unit specialist (v21, which was scored in-group only and came out 0.012-0.028 worse). Every other attempt landed between -0.0038 and +0.0001, most of them within 0.002 of v18c. No ensemble beat v18c + v19a by the +0.0015 build rule.
+
 Team **Varanasi**: Alfa Connectome ML Competition (Wunder Fund), limit order book prediction.
 
 > This repo is private on purpose. The competition rules forbid sharing code, models or detailed strategy before the competition ends. Model weights, caches and submission zips are never committed (see `.gitignore`).
@@ -60,7 +72,7 @@ Rules we agreed with the machine owner and follow:
 - One CPU core (core 31) is used for timing benchmarks via `taskset`, with GPUs hidden (`CUDA_VISIBLE_DEVICES=`), to mimic the competition.
 
 Rules we agreed inside the team (from Oct 18, details in `EXPERIMENTS.md`):
-- **One training job at a time for the whole team** (since Oct 19). Training reads about 70 GB from a single hard disk, so two jobs, even on two different GPUs, both fall to about 3 steps/s (section 3, Days 5-7, step 5). Check `nvidia-smi` and tell the group before launching. GPU 0 is the default.
+- **One training job at a time for the whole team** (since Oct 19). Training reads about 70 GB from a single hard disk, so two jobs, even on two different GPUs, both fall to about 3 steps/s (section 3, Oct 19, item 8). Check `nvidia-smi` and tell the group before launching. GPU 0 is the default.
 - Every training run is launched with `nohup`, a unique `--name`, and a log file, and is added to the runs table in `EXPERIMENTS.md`.
 - Nobody types in a terminal tab where someone else's job is printing.
 - The group is told before a leaderboard submission is used (5 per day for the whole team).
@@ -241,20 +253,306 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 - The top 10 are within 0.003 of each other. We are about 0.0168 behind rank 8 and 0.0193 behind rank 1. Around our position, +0.001 is worth roughly 40-50 places.
 - Several teams have 100-183 submissions; we have 3. The final ranking probably uses different test data from the public board, so heavy tuning against the public board may not hold. We have not tuned to it.
 
-### Days 5-7 (Oct 19-21): the mask, weight decay, and where the error sits
+### Daily log, Oct 19 to Nov 5
 
-By Oct 19 the plain recipe was stuck near 0.680 on valid, so these days went into ideas that change what the model learns, not more seeds. Every run is in `EXPERIMENTS.md`.
+**How to read it**
+- **Dates and times are UTC** (the machine clock). They come from:
+  - the timestamps in the training logs,
+  - the modification times of the logs and result files in `~/work` (`ls -l --time-style=long-iso`),
+  - the commit dates (`git log --date=short`).
+  - IST is UTC + 5:30, so work done in the UTC evening falls on the next IST day.
+- **What the numbers mean:**
+  - "scored" is the global weighted Pearson on valid `is_scored` rows with step >= 99, over all 1,873 valid sequences.
+  - "all rows" is the same metric on every row with step >= 99.
+  - "the 469" are the held-out valid sequences (index % 4 == 0), which the mask models never saw.
+  - "Gap" is the difference to the control named in the line. From the evening of Oct 20 the control is **v18c, 0.6857 scored / 0.5138 all rows**. Seed noise is about 0.0013.
+- **Where things are:** the full rows are in `EXPERIMENTS.md`, and the summary tables are under "Reference tables" below.
 
-**1. Rules we had not read closely (Oct 19)**
-- Prizes go to the top 8 on the **private** leaderboard. The final ranking is the Private Leaderboard; the team leader selects some previously submitted and scored solutions for re-scoring on the Final Dataset; ties go to the earlier submission. Every final candidate must therefore be submitted and scored before Nov 15.
-- The top 8 deliver code, a report, a review call and a license within 7 days of the preliminary results (section 1).
+**How to keep this README current:** add one dated heading (`### Mon DD (Day)`) per working day, appended at the end of that day. List in order what was done, with run names, finals (scored / all rows), the gap to the control, the decisions, and the mistakes or corrections. A day with no work gets a heading with "No logged work". Update the "Status" block at the top whenever the best submission, the candidates or what is running changes.
 
-**2. Is the mask predictable? (`mask_gru.py`)**
-- The valid `is_scored` mask picks about 9.47% of rows. A small mask GRU (1 layer, hidden 64, causal features only) predicts it with AUC 0.941 (within a sequence 0.936) on 469 valid sequences it never saw (valid index % 4 == 0). The top decile of predicted probability holds 65.7% of the scored rows, and the mean predicted p is 9.35% against a true 9.19%.
-- The train set has no mask, so we predicted p for every train row (`train_maskp.npy`, mean 0.104) and for valid (`valid_maskp.npy`, mean 0.0947). The caches are not in git.
+### Oct 19 (Mon)
+1. **Rules and prizes read** (rules and timeline pages).
+   - Prizes go to the top 8 on the **private** leaderboard.
+   - The team leader selects some previously submitted and scored solutions, and these are re-scored on the Final Dataset. Ties go to the earlier submission.
+   - The top 8 must deliver code, a 2-8 page report, a review call and a license within 7 days.
+   - Decision: every final candidate must be submitted and scored before Nov 15.
+2. **Mask diagnostic** (`mask_predict.py`, 04:24).
+   - 9.47% of the valid rows are scored, ranging from 0.5% to 60% per sequence (median 7.8%).
+   - The share is flat across steps 99 to 19,999.
+   - Scored rows come in blocks: 89% of them sit in runs of 2 or more, against 26% if the mask were random. The lag-1 autocorrelation is 0.72.
+   - LightGBM on 173 causal features predicts the mask with AUC 0.887 on 200 unseen sequences; the step index alone gives 0.49.
+   - Decision: the mask is predictable, so build a mask model.
+3. **Mask GRU** (`mask_gru.py`, 04:43).
+   - 1 layer, hidden 64, fitted on 1,404 valid sequences.
+   - On the 469: AUC 0.941 (0.936 within a sequence), and the top decile holds 65.7% of the scored rows.
+   - Wrote `train_maskp.npy` (mean p 0.104) and `valid_maskp.npy`.
+4. **v7**, mask-weighted loss with alpha 0.5 (`train_v2m.py`, 04:57-08:39).
+   - Final 0.6824 / 0.5098, against v4 (same seed, plain loss) 0.6788 / 0.5096: **+0.0036**.
+   - On the 469: 0.6892 against 0.6845 (+0.0047), so the gain is not leakage from the mask fit.
+   - It took 3h42m because it shared GPU 0 with v8b (item 5).
+5. **v8, v8b and v8c**, alpha 0.0.
+   - v8 crashed at its first eval (05:29, `ZeroDivisionError`, because `--eval-every` was 0).
+   - v8b was launched with `CUDA_VISIBLE_DEVICES=1`, but the script forced GPU 0, so it shared a GPU with v7. Stopped at step 15,100.
+   - Fix: the training scripts now respect `CUDA_VISIBLE_DEVICES` (`os.environ.setdefault`).
+   - v8c (07:26-09:45, GPU 1): 0.6811 best / 0.6806 final (+0.0023 over v4's best 0.6788), but all rows fell to 0.5007 (-0.0089).
+   - Decision: alpha 0.5.
+6. **v7 int8 submitted** (zip 14:42, 172,818 bytes).
+   - int8 loss 0.000175 on 100 sequences; full valid 0.682361 with the official scorer.
+   - Leaderboard **0.65367**, rank 470 of 5,051, platform run 22m21s. About 60% of the valid gain carried over.
+7. **v9 and v10**, replicates with seeds 1 and 2.
+   - v9 (14:40-17:12): 0.6826 best / 0.6820 final, +0.0029 over the plain seed-1 run v5 (final).
+   - v10 (15:09-18:35, GPU 1): 0.6816 / 0.6815, +0.0027 over v6 (final).
+   - The three mask-weighted seeds average 0.6822 against 0.6794 for the plain recipe (+0.0028).
+8. **Disk bottleneck.**
+   - v9 and v10 together ran at about 3 steps/s each instead of about 17.
+   - `io_bench.py` measured a single reader at 82 MB/s, which caps training at about 16 steps/s. Parallel readers are worse (mmap with 2-16 threads: 36-41 MB/s).
+   - Decision: **one training job at a time for the whole team**, and nothing else reads the data while one runs.
+   - Mistake: I had said both jobs would finish by 10 PM.
+9. **ensemble_check3 and ensemble_check4** (17:37 and 18:44).
+   - v7+v9 scores 0.6850 scored and 0.6915 on the 469 (+0.0023 over the better member).
+   - v7+v10 0.6846, v9+v10 0.6848, triple 0.6856.
+   - **v7+v9 int8 submitted** (zip 17:27, 336,664 bytes): int8 loss -0.000022, 115.1 us/row. Leaderboard **0.65542**, rank 372 of 5,057, about 67% of the valid gain kept.
+10. **Calibration test** (`calib_check.py`, 18:59).
+    - Scaling the predictions by the mask probability lowers every setting; the mildest costs -0.0027.
+    - Decision: mask weighting works through training, not the output. Not used.
+11. **v11 and v12 launched** (19:07 and 20:39, chained). These train on train + valid; results on Oct 20.
 
-**3. Mask-weighted loss (`train_v2m.py`, runs v7 to v10)**
-The loss weight is multiplied by m = alpha + (1 - alpha) * min(p / mean_p, 20). All runs: hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300`.
+### Oct 20 (Tue)
+1. **v11 and v12**, train + valid (results in ensemble_check5, 05:50).
+   - On the 469: v11 0.6849 against v7 0.6892 (-0.0043), v12 0.6909 against v9 0.6889 (+0.0020).
+   - The pair scores 0.6903 against v7+v9 0.6915.
+   - Decision: no gain on scored rows; dropped.
+2. **v13**, an LSTM (`train_v4m.py`, 06:09-07:51).
+   - 0.6827 / 0.5080 against v7 0.6824 / 0.5098.
+   - ensemble_check6 (08:00): v7+v13 0.6923 on the 469 (+0.0008 over v7+v9). The residual correlation is 0.974 against 0.979 for v7-v9.
+   - Decision: below the +0.002 bar, so no mixed build. The int8 LSTM runs at 59.2 us/row.
+3. **Error analysis** (`error_analysis.py`, 08:13).
+   - Rows at the +-2 clip: 11% of rows, 32% of the weight, 57% of the squared error.
+   - y > 0: 34% of the weight, 54% of the error.
+   - Tight-spread rows: 45% of rows, score 0.429, 64.5% of the error.
+   - The worst 10% of sequences score 0.20.
+4. **Residual probe** (`residual_probe.py`, 08:21): LightGBM on 216 extra causal features gives -0.0016 out of fold. Closed.
+5. **Target structure** (`target_structure.py`, 08:32).
+   - The targets are integer multiples of one of four per-sequence units.
+   - t0 + t1 behaves like a cost and t0 - t1 like a direction.
+   - The horizon is long-tailed: autocorrelation 0.52 at lag 100.
+   - The prices explain only about 4% of either target.
+   - Decision: try shifted targets as auxiliary labels (v14).
+6. **v14**, auxiliary heads for targets shifted by ±50 and ±200 steps (08:53-10:18).
+   - 0.6802 / 0.5085 against v7 0.6824 (-0.0022). No gain.
+   - Its replicate v15 was cancelled before it started.
+7. **`train_multi.py`** (commit 09:09): K models trained from one batch stream, so the disk is read once.
+   - With K = 1 it reproduces the loss lines and weights of `train_v2m.py` and `train_v5m.py` bit for bit.
+8. **v16**, the first K = 3 run (10:22-11:43).
+   - v16a, dropout 0.1 + wd 0.05: 0.6842 / 0.5137 (+0.0018 over v7), but 0.6875 on the 469 against v7's 0.6892.
+   - v16b, alpha 0.75: 0.6807 (-0.0017).
+   - v16c, 3 layers: 0.6815 (-0.0009) and 22% slower.
+   - ensemble_check7 followed at 12:02.
+9. **Unit analysis** (`unit_analysis.py`, 12:26) **and unit probe** (`unit_probe.py`, 13:35).
+   - The coarse unit (0.6569) holds 48% of the metric weight and 66% of the error, and scores 0.43 against 0.73-0.80 for the finer units.
+   - Rescaling each unit separately gains only +0.0001.
+   - From the first 20 steps the unit is recognised with 99.99% accuracy (cross-validated on train) and 100% on valid.
+   - Decision: the model very likely knows the unit already, so an auxiliary unit label is not worth a run. Revisited on Nov 5 as v30.
+10. **v17** (11:46-13:28; slowed by the ensemble_check7 and unit_probe reads).
+    - v17a, dropout 0.2: 0.6846 / 0.5128.
+    - v17b, dropout alone at wd 0.01: 0.6821 / 0.5086.
+    - v17c, a replicate of v16a with init seed 1: 0.6852 / 0.5140.
+    - Verdict: **weight decay 0.05 helps**. The three wd 0.05 runs (v16a, v17a, v17c) average 0.6847, +0.0023 over the mean of v7, v9 and v13; dropout does nothing.
+11. **ensemble_check8** (13:51).
+    - The wd models that share data seed 0 are near-duplicates: residual correlation 0.990-0.992.
+    - Best pair v17a+v17c 0.6859, only +0.0010 over v7+v9, so the build rule was not met.
+    - Decision: pairs need members with different data seeds, hence v19.
+12. **v18** (13:51-15:15).
+    - v18a, wd 0.1: 0.6848 / 0.5139.
+    - v18b, wd 0.3: 0.6817 / 0.5085.
+    - **v18c, wd 0.05 without dropout: 0.6857 / 0.5138**, +0.0033 over v7 with the same init and batches. **It is the control from here on.**
+13. **v19**, data seed 1 (15:16-16:36).
+    - v19a, wd 0.1: 0.6856 / 0.5144.
+    - v19b, wd 0.3: 0.6822 / 0.5083.
+    - v19c, wd 0.05: 0.6849 / 0.5134.
+14. **ensemble_check9** (17:10).
+    - **v18c+v19a** is the best of 10 cross-seed pairs: 0.6867 scored and 0.6938 on the 469, +0.0018 / +0.0022 over v7+v9.
+    - Mistake: the first run stopped on its own sanity check. The reference lookup was wrong; the scores were fine. I fixed the lookup and the rerun passed all 60 checks. Lesson: fix the check, never loosen its tolerance.
+15. **v18c+v19a int8 submitted** (zip 17:12, 338,570 bytes).
+    - int8 loss -0.000017, 114.0 us/row, projected 39.6 min on the platform.
+    - Leaderboard **0.65684**, rank 302 of 5,111 (logged 19:32), +0.00142 over v7+v9. About 79% of the valid gain carried over.
+    - **It has been our best submission since.**
+    - A three-model ensemble (0.6929 on the 469 in ensemble_check9) was judged too risky at about 48-51 minutes projected.
+16. **Correction:** three all-rows numbers I had been given did not match the logs: v17a 0.5128 (given 0.5131), v17b 0.5086 (0.5082), v18b 0.5085 (0.5093). The log values were used.
+17. **v20** (17:52-19:21).
+    - v20a, EMA of the weights: 0.6857 / 0.5139, a gap of 0.0000. It led by +0.0093 at step 12,800, but the lead was gone by the end of the cosine schedule.
+    - v20b, lr 2e-3: 0.6841 / 0.5133 (-0.0016).
+    - v20c, hidden 192: 0.6845 / 0.5150 (-0.0012) and about 6x slower to train.
+18. **In-group reference** (`unit_group_eval.py`, 19:53): on the 697 coarse-unit valid sequences, v18c scores 0.4334 and v18c+v19a 0.4347.
+19. **v21**, coarse-unit specialists (`--unit-filter 0.6569`, 19:59-20:37 UTC, which is 01:29-02:08 IST on Oct 21).
+    - In-group finals 0.4059 / 0.4218 / 0.4146 (wd 0.05 / wd 0.1 / lr 5e-4), against 0.4334 for the generalist: -0.012 to -0.028.
+    - All three peaked at step 26,400 and then overfit.
+    - Decision: the other units' data helps the coarse group, so the router idea was dropped. The results were committed on Oct 21.
+
+### Oct 21 (Wed)
+1. **v21 result logged** (commit 08:58). Added the `noise` option and queued the v22 → v24 chain.
+2. **Leaderboard read at 11:26 IST** (date approximate). The earlier README dated this read Oct 20, but at 11:26 IST on Oct 20 the pair had not been built yet, so Oct 21 is the likely date.
+   - Rank 1 0.67244, rank 8 0.67017, rank 25 0.66783, rank 50 0.66511, rank 150 0.66049; us 302 at 0.65684.
+   - About +0.013 was needed for the prize line.
+3. **v22** (08:49-10:15).
+   - Input noise 0.05: 0.6847 / 0.5137 (-0.0010).
+   - Input noise 0.15: 0.6843 / 0.5132 (-0.0014).
+   - lr 5e-4: 0.6839 / 0.5125 (-0.0018).
+4. **v23**, 7 epochs (10:16-12:14).
+   - wd 0.05: 0.6839 / 0.5120 (-0.0018).
+   - wd 0.07: 0.6849 / 0.5139 (-0.0008).
+   - wd 0.1: 0.6852 / 0.5145 (-0.0005).
+5. **v24**, a third data seed (12:14-13:35).
+   - wd 0.05: 0.6856 / 0.5135 (-0.0001).
+   - wd 0.07: 0.6849 / 0.5132 (-0.0008).
+   - wd 0.1: 0.6851 / 0.5140 (-0.0006).
+   - Across data seeds 0, 1 and 2 the recipe lands at 0.6848-0.6857.
+6. **ensemble_check10** (14:49).
+   - The best of 55 pairs is v18c+v24a: 0.6869 scored and 0.6938 on the 469, only +0.0002 / +0.0001 over v18c+v19a.
+   - The residual correlations are 0.989-0.996.
+   - Build rule not met, so nothing was built that day.
+   - Decision: the wd recipe is saturated.
+
+### Oct 22 (Thu)
+No logged work (no commits, runs or result files dated this day).
+
+### Oct 23 (Fri)
+1. **Mukesh's pull request #2 merged** (a team member's name in the README).
+2. **Teacher predictions** (`make_teacher.py`, 515 s): the submitted pair's predictions on every train row.
+   - Caveat: the teacher has seen most of the train rows. On rows both members trained on it sits about +0.03 above its half-seen holdout scores.
+3. **v25**, K = 6 (09:37-11:06). Distillation runs:
+   - kd 0.3: 0.6843 / 0.5146 (-0.0014).
+   - kd 0.5: 0.6852 / 0.5151 (-0.0005).
+   - kd 1.0: 0.6858 / 0.5158 (**+0.0001**, the best of any run since v18c).
+   - kd 0.5 with wd 0.1: 0.6857 / 0.5155 (0.0000).
+   
+   Row-weight runs:
+   - abs(y)^0.5: 0.6820 / 0.5098 (-0.0037).
+   - abs(y)^1.5: 0.6834 / 0.5129 (-0.0023).
+   
+   Distillation learns faster but finishes level; the metric's own abs(y) weighting is the right one.
+4. **v18c+v24a int8 built on request** (zip 12:35, 335,138 bytes), even though ensemble_check10's rule was not met.
+   - int8 loss +0.000033 on the first 100 valid sequences.
+   - 112.9 us/row against 114.5 for v18c+v19a in the same bench, projected 39.2 min.
+   - Kept as a candidate; scored on the leaderboard by Nov 2.
+5. **v26**, K = 6 (12:55-14:17).
+   - Training chunk 2,000: 0.6829 / 0.5115 (-0.0028).
+   - Training chunk 4,000: 0.6819 / 0.5091 (-0.0038).
+   - Feature dropout 0.1: 0.6835 / 0.5129 (-0.0022).
+   - Feature dropout 0.2: 0.6826 / 0.5113 (-0.0031).
+   - Classification head, weight 0.5: 0.6844 / 0.5141 (-0.0013).
+   - Classification head, weight 1.0: 0.6845 / 0.5145 (-0.0012).
+6. **Mistake** (date approximate, Oct 23-25): an `EXPERIMENTS.md` row written with `|clipped y|` broke the table, because the pipes count as columns. It now reads "abs(clipped y)".
+
+### Oct 24 (Sat)
+No logged work.
+
+### Oct 25 (Sun)
+1. **Feature feasibility** (`feature_feasibility.py`, 16:55).
+   - The 112 columns are quantile-transformed, and the price index is not a depth level.
+   - So mid, spread, imbalance and microprice cannot be rebuilt exactly. Their proxies add only noise (-0.02 to +0.005).
+   - No new-feature run.
+2. **Output post-filters** (`output_filter_check.py`, 17:04): smoothing and a learned causal filter lose in every fold (-0.0003 to -0.035). Closed.
+3. **v27**, input-group ablation, K = 6 (17:29-18:50). Each run sets one input group to zero.
+   - Volumes: -0.0285.
+   - All of i1: -0.0094.
+   - Price levels: -0.0039.
+   - Anonymous columns: -0.0035.
+   - Trade columns: -0.0029.
+   - i1 prices: -0.0015.
+   - Every group carries signal, so there is nothing to remove.
+
+### Oct 26 (Mon)
+1. **v26 and v27 results committed** (04:02).
+2. **v28**, extra volume-change inputs, K = 6 (04:07-05:28).
+   - xvd=all: 0.6840 / 0.5131 (-0.0017).
+   - xvd=i1: 0.6844 / 0.5134 (-0.0013).
+   - xagg: 0.6848 / 0.5141 (-0.0009).
+   - Both: 0.6837 / 0.5125 (-0.0020).
+   - Init-seed-1 replicates: 0.6840 (-0.0017) and 0.6835 (-0.0022).
+   - None helps; the GRU builds the changes itself.
+3. **Starter-pack docs read** (data_overview, rules, faq, timeline).
+   - Scored rows are `need_prediction AND is_scored`.
+   - The number of final selections is not specified.
+   - Every deadline is 23:59 UTC, which is 05:29 IST the next day.
+   - Bid and ask are split by column index.
+
+### Oct 27 (Tue)
+No logged work.
+
+### Oct 28 (Wed)
+No logged work.
+
+### Oct 29 (Thu)
+No logged work.
+
+### Oct 30 (Fri)
+No logged work.
+
+### Oct 31 (Sat)
+1. **v27 and v28 results and the Discord findings committed** (07:04).
+   - The organisers allow ensembles, distillation and any modelling within the limits.
+   - The split is by time: train, valid, public test, a small gap, then private test.
+   - The data spans several markets and regimes.
+   - Neither the mask rule nor the number of final selections is stated.
+2. **`REPRODUCE.md`** (07:09) **and `REPORT_DRAFT.md`** (07:11), committed at 07:19.
+3. **Mask GRU2** (`mask_gru2.py`, 07:21-07:31): 2 layers, hidden 128.
+   - On the 469: AUC 0.9495 against 0.9414, and the top decile holds 67.6% of the scored rows (was 65.7%).
+   - It is less well calibrated: mean p 11.08% against a true 9.47%.
+4. **v29**, v18c retrained with the GRU2 probabilities (07:40-09:01).
+   - alpha 0.5: 0.6846 / 0.5137 (-0.0011).
+   - alpha 0.35: 0.6846 / 0.5121 (-0.0011).
+   - alpha 0.65: 0.6849 / 0.5140 (-0.0008).
+   - Verdict: a sharper mask model changes nothing; the search is over.
+
+### Nov 1 (Sun)
+No logged work. The team-merge deadline (23:59 UTC) passed.
+
+### Nov 2 (Mon)
+1. **v29 finals logged**, and the README summary for Oct 21 to Nov 2 written (commit 14:34).
+2. **Leaderboard: rank 398 of 5,660** at 0.65684, down from 302 of 5,111 on Oct 20; we had no better submission since, and other teams moved past us.
+3. **Discord remarks**: what was said that day is not recorded in our files. The Oct 31 facts stand.
+4. **v18c+v24a on the leaderboard: 0.65596** (the submission date is approximate; the score was known by Nov 2).
+   - That is -0.00088 below v18c+v19a and +0.00054 above v7+v9, so it is our second-best scored submission and a fallback candidate.
+   - On valid it had been +0.0002 / +0.0001 ahead of v18c+v19a. Valid differences that small say nothing about the leaderboard.
+   - 7 leaderboard submissions used so far.
+5. **ensemble_check11** (14:41, 333 s, run alone).
+   - Best triple v18c+v24a+v13: 0.6873 scored / 0.6941 on the 469, +0.0006 / +0.0003 over v18c+v19a.
+   - Best GRU-only triple v18c+v19a+v24a: 0.6872 / 0.6941.
+   - Build rule not met, so nothing was built.
+   - v13 has no `_final.pt`; its `_best.pt` is its final step and was used.
+   - 168 sanity checks pass.
+
+### Nov 3 (Tue)
+No logged work.
+
+### Nov 4 (Wed)
+No logged work.
+
+### Nov 5 (Thu)
+1. **Causal unit predictions** (`unit_pred.py`, 09:46-09:49, CPU).
+   - LightGBM on the first 20 steps.
+   - Train predictions are 5-fold out of fold, so no sequence is predicted by a model that saw its label: 0.99991 accurate (one wrong, sequence 3018).
+   - Valid: 1.00000.
+2. **`train_multi.py` options `unitemb` and `unitpred`**: a learned embedding of the predicted unit, "unknown" before step 20.
+   - Smoke tests on GPU 1: with K = 1 the defaults reproduce `train_v2m.py`'s lines exactly (6 of 6). The three v30 models ran end to end.
+3. **v30**, the regime (unit) embedding, K = 3 (09:52-11:13, 80 min).
+   - **v30a**, embedding size 8: 0.6847 / 0.5142 (-0.0010 / +0.0004).
+   - **v30b**, size 16: 0.6853 / 0.5146 (-0.0004 / +0.0008).
+   - **v30c**, size 8 with init seed 1: 0.6848 / 0.5143 (-0.0009 / +0.0005).
+   - **No gain.** This matches the unit probe: the GRU already knows the unit.
+   - A per-unit (coarse-group) evaluation was not run.
+4. **Correction:** I first wrote that v30's training and holdout sequences all got the right unit. The run log shows 0.99990 on the training sequences (sequence 3018 is among them) and 1.00000 on the holdout. Fixed in `EXPERIMENTS.md`.
+5. **Leaderboard read: rank 419 of 5,711 at 0.65684.**
+   - Rank 1 0.67586, rank 8 (musya) 0.67257, rank 22 0.66950, rank 100 0.66426, rank 200 0.66122, rank 300 about 0.6586.
+   - The prize line (rank 8) is +0.0157 away.
+6. **README rewritten** as this daily log.
+
+### Reference tables
+
+Summary tables from the earlier "Days 5-7" and "Oct 21 to Nov 2" sections, unchanged except for new rows: v24 in the weight-decay table, v30, the Nov 2 submission and the leaderboard snapshots. Unless a row says otherwise, every run from v20 on used v18c's settings: hidden 128, 2 layers, no dropout, alpha 0.5, wd 0.05, lr 1e-3, 5 epochs, data seed 0, init seed 0. Those runs share v18c's batches, so the gap comes from the change alone. The full rows, with every evaluation step, are in `EXPERIMENTS.md`.
+
+**Mask-weighted loss** (Oct 19, `train_v2m.py`). The loss weight is multiplied by m = alpha + (1 - alpha) * min(p / mean_p, 20). All runs: hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300`.
 
 | run | setup | best / final valid (all 1,873) | 469 held-out | all rows >= 99 (full valid) |
 |---|---|---|---|---|
@@ -262,21 +560,9 @@ The loss weight is multiplied by m = alpha + (1 - alpha) * min(p / mean_p, 20). 
 | v7 | alpha 0.5, seed 0 | 0.6824 / 0.6824 | 0.6892 | 0.5098 |
 | v8c | alpha 0.0 (weight proportional to p) | 0.6811 / 0.6806 | | 0.5007 |
 | v9 | alpha 0.5, seed 1 | 0.6826 / 0.6820 | 0.6889 | |
-| v10 | alpha 0.5, seed 2 | | 0.6863 | |
+| v10 | alpha 0.5, seed 2 | 0.6816 / 0.6815 | 0.6863 | |
 
-- alpha 0.5 gives +0.0036 over v4 at the same seed (seed noise is about 0.0013) and +0.0028 on average over three seeds. alpha 0.0 is worse and loses 0.0089 on all rows.
-- The mask GRU never saw the 469 held-out sequences, and v7 still gains +0.0047 there, so the gain is not leakage.
-- The effect is in the training loss, not in the output. Scaling v7+v9's predictions by the mask probability afterwards (`calib_check.py`) lowered the score for every setting (mildest, (p/mean_p)^0.1: -0.0027), because the metric already ignores unscored rows.
-
-**4. Leaderboard, Oct 19**
-`submission_v7_int8.zip` alone scored **0.65367** (platform run 22m21s). The v7+v9 two-model int8 ensemble scored **0.65542**, rank 372 of 5,057. The valid gain of the v7+v9 pair carried over at about 67% (v4+v5 carried 46%).
-
-**5. One training job at a time**
-- Two jobs together, even on two different GPUs, each ran at about 3 steps/s instead of about 17. The data (about 64-70 GB) is read from a single 7200 rpm disk (about 82 MB/s, which is about 16 steps/s), and the container's 30 GB memory limit includes the page cache. The GPU alone would do 107-119 steps/s, so training is disk-bound. Heavy validation passes slow a running job the same way. We lost about 10 minutes once by running an ensemble check next to a training run.
-- Before Oct 19 the training scripts forced GPU 0 whatever `CUDA_VISIBLE_DEVICES` said (a job started on GPU 1 still ran on GPU 0). Fixed with `os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")`.
-- `train_multi.py` (Oct 20) trains K models from the same stream of batches in one process, so the disk is read once. K = 3 takes about the same wall time as one run (about 100 minutes). Checked bit for bit against `train_v2m.py` and `train_v5m.py` (K = 1 reproduces their loss lines, identical specs give identical models). Models in one run share the batch order, which matters for ensembles (step 9).
-
-**6. Ideas that did not work (each measured)**
+**Ideas that did not work, Oct 19-20** (each measured)
 
 | idea | result | verdict |
 |---|---|---|
@@ -292,8 +578,7 @@ The loss weight is multiplied by m = alpha + (1 - alpha) * min(p / mean_p, 20). 
 | learning rate 2e-3 (v20b) / hidden 192 (v20c) | 0.6841 / 0.6845 | no |
 | three-model ensemble | 0.6929 on the 469 but about 48-51 minutes projected on the platform | too risky |
 
-**7. Weight decay was the one knob that worked**
-The first weight-decay run (v16a, wd 0.05 with dropout 0.1) was ahead of v7 from mid-run on. Replicates and a sweep followed (AdamW; the old default was 0.01). Dropout turned out to do nothing; weight decay does all of it.
+**Weight decay** (Oct 20, AdamW; the old default was 0.01)
 
 | run | wd | dropout | data seed | final valid | all rows >= 99 |
 |---|---|---|---|---|---|
@@ -308,44 +593,9 @@ The first weight-decay run (v16a, wd 0.05 with dropout 0.1) was ahead of v7 from
 | v19a | 0.1 | 0 | 1 | 0.6856 | 0.5144 |
 | v19b | 0.3 | 0 | 1 | 0.6822 | 0.5083 |
 | v19c | 0.05 | 0 | 1 | 0.6849 | 0.5134 |
+| v24a / v24b / v24c | 0.05 / 0.07 / 0.1 | 0 | 2 | 0.6856 / 0.6849 / 0.6851 | 0.5135 / 0.5132 / 0.5140 |
 
-- Six runs with wd 0.05-0.1 land at 0.6842-0.6857 (about +0.0027 over the baselines) on both data seeds. wd 0.3 is too strong and loses the gain. The best single model (v18c, 0.6857) already equals the v7+v9 pair (0.6850) and takes 21 instead of 34 minutes on the platform.
-
-**8. Where the error sits (analysis, no training)**
-- **Large targets:** the 11% of rows at the +-2 clip hold about 32% of the weight and 57% of the squared error. Rows with y > 0 hold 34% of the weight and 54% of the error. Quiet, tight-spread rows score only 0.43 and hold 64.5% of the error. The worst 10% of sequences score 0.20 (the rest 0.73). Step range and t0 against t1 do not matter.
-- **Targets are integer multiples of a per-sequence unit** (`target_structure.py`): every sequence has one of four units (0.125433, 0.241330, 0.468536, 0.656868; 398 / 347 / 431 / 697 valid sequences). t0 + t1 behaves like a cost (-1 unit on 47% of rows, -2 on 29%) and t0 - t1 like a direction. Autocorrelation is 0.976 at lag 1, 0.52 at lag 100 and 0.35 at lag 200, so the horizon is long-tailed (a few hundred steps). The anonymised price columns explain only about 4% of either target, so extra targets cannot be derived from them.
-- **The coarse-unit group (0.6569) is the weak one** (`unit_analysis.py`): it holds 47.7% of the metric weight and 66% of the weighted squared error and scores about 0.43 against 0.80 / 0.77 / 0.73 for the finer units. Per-unit rescaling gains only +0.0001, so it is not a calibration problem.
-- **The unit is easy to recognise** (`unit_probe.py`): from the first 20 steps a classifier gets 99.99% in cross-validation on train and 100% on all 1,873 valid sequences; from the first 99 steps 99.96% / 99.95%. The signal is in the level of a few volume-like and price columns. The generalist models therefore almost certainly know the unit already; an auxiliary unit label was not worth a run.
-- **In-group reference scores** on the 697 coarse valid sequences (`unit_group_eval.py`): v18c 0.4334, v19a 0.4332, v20a 0.4334, the pair v18c+v19a 0.4347 (all rows >= 99: about 0.269). Every generalist lands within 0.0003 of the others.
-
-**9. Weight-decay ensembles and the third leaderboard score**
-- The wd models are near-duplicates: residual correlations 0.989-0.993, even across data seeds, against 0.979 for v7-v9. So pairing them gains only about +0.0008 over the better member, and the gain of a pair comes mostly from its better single models.
-- Best cross-seed pair, `ensemble_check9.py`: **v18c + v19a**, 0.6867 on all 1,873 (+0.0018 over v7+v9) and 0.6938 on the 469 (+0.0022). Chosen as the best of 10 pairs, so slightly optimistic.
-- int8 build `submission_ens_v18cv19a_int8.zip` (338,570 bytes): int8 loss -0.000017 on the first 100 valid sequences, 114.0 us/row, projected 39.6 minutes on the platform (the v4+v5 pair was projected at 39.7 and took 34m16s).
-- **Leaderboard 0.65684, rank 302 of 5,111** (+0.00142 over v7+v9). 79% of the valid gain carried over, better than before. This is our current best and fallback final submission.
-- A bug caught by our own sanity check: `ensemble_check9.py` stopped because it compared the 469-sequence scores with full-valid reference values. The check was right and the scores were fine; the reference lookup was wrong. Lesson: fix the check, never loosen its tolerance.
-
-**10. Leaderboard on Oct 20 (read at 11:26 IST)**
-
-| rank | score |
-|---|---|
-| 1 | 0.67244 |
-| 8 | 0.67017 |
-| 25 | 0.66783 |
-| 50 | 0.66511 |
-| 150 | 0.66049 |
-| 302 (us, after step 9) | 0.65684 |
-
-The top 10 are within 0.0023 of each other. Near our score +0.001 is worth about 40 places. To reach the prize line we need about +0.013.
-
-**11. Coarse-unit specialist test (v21, running at the time of writing)**
-`train_multi.py --unit-filter 0.6569` trains only on the coarse-unit train sequences (4,432 of 10,307, 43.0%) and evaluates on the 697 coarse valid sequences. Three models (wd 0.05, wd 0.1, wd 0.05 with lr 5e-4), 44,320 steps each, expected to finish about 02:20 IST on Oct 21. The question: does a specialist beat 0.4334 (the generalist in-group score) by about 0.01? If yes, a router (the unit can be read from the first 20-99 steps, which are never scored) could send each sequence to its specialist at no extra inference cost. If no, we stop. The result goes in `EXPERIMENTS.md`. (Result: no; see Oct 21 to Nov 2, step 2.)
-
-### Oct 21 to Nov 2: testing every remaining idea against v18c
-
-After the v18c + v19a pair (Oct 20), each new idea went through `train_multi.py` with three or six variants per run. Unless a row says otherwise, every variant used v18c's settings: hidden 128, 2 layers, no dropout, mask weighting alpha 0.5, wd 0.05, lr 1e-3, 5 epochs, data seed 0 and init seed 0. So each variant saw the same batches and the same initial weights as v18c, and its difference from the **control v18c (0.6857 scored / 0.5138 all rows >= 99)** comes from the change alone. Seed noise is about 0.0013. The full rows, with every evaluation step, are in `EXPERIMENTS.md`.
-
-**1. Training-recipe tests (v20, v22, v23)**
+**Training-recipe tests (v20, v22, v23)**
 
 | run | tested | final (scored / all rows) | vs v18c (scored) |
 |---|---|---|---|
@@ -356,16 +606,7 @@ After the v18c + v19a pair (Oct 20), each new idea went through `train_multi.py`
 | v22c | peak lr 5e-4 | 0.6839 / 0.5125 | -0.0018 |
 | v23a / v23b / v23c | 7 epochs, wd 0.05 / 0.07 / 0.1 | 0.6839 / 0.5120, 0.6849 / 0.5139, 0.6852 / 0.5145 | -0.0018 / -0.0008 / -0.0005 (v23c is +0.0004 over v18a, 5 epochs at wd 0.1) |
 
-**2. Coarse-unit specialist (v21)**
-Trained only on the 4,432 coarse-unit train sequences and scored on the 697 coarse valid sequences (in-group). The finals were 0.4059 / 0.4218 / 0.4146 (wd 0.05, wd 0.1, lr 5e-4), against 0.4334 for the generalist v18c and 0.4347 for the pair. All three peaked at step 26,400 (about 4.8 epochs of their data) and then overfit. The other units' data helps the coarse group, so we dropped the router idea.
-
-**3. Third data seed and pairs (v24, `ensemble_check10.py`)**
-- v24a / v24b / v24c (data seed 2; wd 0.05 / 0.07 / 0.1) finish at 0.6856 / 0.6849 / 0.6851. Across data seeds 0, 1 and 2 the recipe lands at 0.6848-0.6857.
-- Best of all 55 pairs: v18c + v24a, 0.6869 on all 1,873 and 0.6938 on the 469. That is only +0.0002 / +0.0001 over v18c + v19a, so the build rule (+0.0015) was not met and nothing was built.
-- Pairs gain about +0.0009 over their better member whichever seeds they combine. Residual correlations are 0.989-0.996, so the wd recipe converges to nearly the same function whatever the batch order.
-
-**4. Distillation and row weights (v25)**
-The teacher is the submitted pair's prediction on every train row (`make_teacher.py`). Caveat: the teacher has seen most train rows, so on them it is partly fitted to the targets.
+**Distillation and row weights (v25)**
 
 | run | tested | final (scored / all rows) | vs v18c (scored) |
 |---|---|---|---|
@@ -373,9 +614,7 @@ The teacher is the submitted pair's prediction on every train row (`make_teacher
 | v25c | kd 0.5 with wd 0.1 | 0.6857 / 0.5155 | 0.0000 |
 | v25d / v25e | row weight abs(y)^0.5 / abs(y)^1.5 instead of abs(y) | 0.6820 / 0.5098, 0.6834 / 0.5129 | -0.0037 / -0.0023 |
 
-Distillation learns much faster (0.6844 against 0.6711 at step 12,800), but it finishes level with v18c on scored rows, about +0.002 on all rows. The metric's own abs(y) weighting is the right one.
-
-**5. Backprop length, feature dropout, classification head (v26)**
+**Backprop length, feature dropout, classification head (v26)**
 
 | run | tested | final (scored / all rows) | vs v18c (scored) |
 |---|---|---|---|
@@ -383,7 +622,7 @@ Distillation learns much faster (0.6844 against 0.6711 at step 12,800), but it f
 | v26c / v26d | input-column dropout 0.1 / 0.2 | 0.6835 / 0.5129, 0.6826 / 0.5113 | -0.0022 / -0.0031 |
 | v26e / v26f | auxiliary 21-bin classification head, weight 0.5 / 1.0 | 0.6844 / 0.5141, 0.6845 / 0.5145 | -0.0013 / -0.0012 |
 
-**6. Which inputs matter (v27, one input group set to zero)**
+**Which inputs matter (v27, one input group set to zero)**
 
 | run | group dropped | final (scored / all rows) | vs v18c (scored) |
 |---|---|---|---|
@@ -394,9 +633,7 @@ Distillation learns much faster (0.6844 against 0.6711 at step 12,800), but it f
 | v27d | trade columns and their flags | 0.6828 / 0.5107 | -0.0029 |
 | v27b | i1 prices and their changes only | 0.6842 / 0.5121 | -0.0015 |
 
-Every group carries signal, so there is nothing to remove. The volumes matter most, and about 0.008 of the second instrument's value sits in its non-price columns.
-
-**7. Explicit volume changes as extra inputs (v28)**
+**Explicit volume changes as extra inputs (v28)**
 
 | run | added inputs | final (scored / all rows) | vs v18c (scored) |
 |---|---|---|---|
@@ -405,12 +642,7 @@ Every group carries signal, so there is nothing to remove. The volumes matter mo
 | v28c | 6 order-flow aggregates (bid, ask and bid minus ask per instrument) | 0.6848 / 0.5141 | -0.0009 |
 | v28d / v28f | both (init seed 0 / 1) | 0.6837 / 0.5125, 0.6835 / 0.5117 | -0.0020 / -0.0022 |
 
-None of them helps. The GRU already builds the changes from the volume levels it sees.
-
-**8. A sharper mask model (`mask_gru2.py`, v29)**
-- The mask GRU2 has 2 layers and hidden 128, and it was fit on the same 1,404 valid sequences. On the 469 held-out sequences: AUC **0.9495 against 0.9414**, within-sequence AUC 0.9461 against 0.9363, and the top decile holds 67.6% of the scored rows (was 65.7%).
-- It is less well calibrated: mean p 11.08% against a true rate of 9.47% on all valid.
-- v29 retrained v18c with these probabilities. Only the mask probabilities differ:
+**A sharper mask model (mask GRU2, v29).** Only the mask probabilities differ from v18c.
 
 | run | alpha | final (scored / all rows) | vs v18c (scored / all rows) |
 |---|---|---|---|
@@ -418,18 +650,15 @@ None of them helps. The GRU already builds the changes from the volume levels it
 | v29a | 0.5 | 0.6846 / 0.5137 | -0.0011 / -0.0001 |
 | v29c | 0.65 | 0.6849 / 0.5140 | -0.0008 / +0.0002 |
 
-A sharper mask model changes nothing.
+**Unit (regime) embedding (v30).** The predicted unit class is embedded and appended to the input. The class is "unknown" before step 20. The input layer is larger (176 or 184 inputs), so the initial weights are not v18c's.
 
-**9. Analysis without training**
-- **Output post-filters** (`output_filter_check.py`): exponential smoothing and a learned causal linear filter of the predictions lose in every fold (-0.0003 to -0.035). The targets jump on about 10% of steps and the predictions already react at once, so smoothing only delays real jumps.
-- **Features** (`feature_feasibility.py`): the 112 data columns are per-column normal-quantile-transformed (the fill value 5.1992 is the transform's bound), and the price-column index is not a depth level. So mid, spread, imbalance and microprice cannot be rebuilt exactly. Their proxies are 87-100% linear in the current inputs and add only noise to a ridge on the inputs (-0.02 to +0.005).
-- **Target structure and units** (summary of Days 5-7, step 8): the targets are integer multiples of one of four per-sequence units, a cost-like t0 + t1 and a direction-like t0 - t1, over a long-tailed horizon of a few hundred steps.
-  - The coarse unit (0.6569) holds 48% of the metric weight and 66% of the error, and it scores only about 0.43.
-  - The unit can be read from the warm-up steps (99.95-100%), so the model very likely knows it already.
-  - Rescaling per unit gains +0.0001, and a coarse-unit specialist is worse (step 2).
-  - The weak group is weak because its targets are mostly 0 or one unit, not because the model misreads it.
+| run | embedding | final (scored / all rows) | vs v18c (scored / all rows) |
+|---|---|---|---|
+| v30a | 8, init seed 0 | 0.6847 / 0.5142 | -0.0010 / +0.0004 |
+| v30b | 16, init seed 0 | 0.6853 / 0.5146 | -0.0004 / +0.0008 |
+| v30c | 8, init seed 1 | 0.6848 / 0.5143 | -0.0009 / +0.0005 |
 
-**10. Leaderboard history** (no new submission since Oct 20; 6 used, including the baseline calibration)
+**Leaderboard history** (7 submissions used, including the baseline calibration)
 
 | date | submission | local valid | leaderboard | rank | share of the valid gain kept |
 |---|---|---|---|---|---|
@@ -439,15 +668,24 @@ A sharper mask model changes nothing.
 | Oct 19 | `submission_v7_int8.zip` | 0.6824 | 0.65367 | 470 of 5,051 | about 60% |
 | Oct 19 | `submission_ens_v7v9_int8.zip` | 0.6850 | 0.65542 | 372 of 5,057 | about 67% |
 | Oct 20 | `submission_ens_v18cv19a_int8.zip` | 0.6867 | **0.65684** | **302 of 5,111** | about 79% |
+| by Nov 2 (date approximate) | `submission_ens_v18cv24a_int8.zip` | 0.6869 | 0.65596 | not recorded | below v18c+v19a despite +0.0002 on valid |
 
-**11. Competition facts from Discord (organiser answers, logged Oct 31)**
-- Ensembles, distillation and any other modelling are allowed, as long as the submission stays within the limits (20 MB zip, 1 vCPU, 60 minutes).
-- The split is by time. Train, valid, public test, a small gap and private test are contiguous, so the private part is slightly later than valid.
-- The data spans several markets and regimes.
-- Neither the hidden test mask rule nor the number of final selections is stated (the docs say only "choose some").
+Our rank at 0.65684 has since drifted as other teams improved: 398 of 5,660 (Nov 2), 419 of 5,711 (Nov 5).
 
-**12. Where this leaves us**
-More than 30 variants since Oct 20 changed the optimizer, schedule, length, width, regularisation, loss weights, distillation, inputs, backprop length and the mask model. None beat v18c by more than seed noise. The recipe is at its ceiling: about 0.6857 for a single model and 0.6867 for the pair on valid, 0.65684 on the leaderboard. The search is over, and the remaining time goes to the final submission, the report and the verification package.
+**Leaderboard snapshots**
+
+| rank | Oct 18 (23:30) | Oct 21 (11:26 IST, date approximate) | Nov 5 |
+|---|---|---|---|
+| 1 | 0.67243 | 0.67244 | 0.67586 |
+| 8 | 0.66992 | 0.67017 | 0.67257 (musya) |
+| 22 | | | 0.66950 |
+| 25 | 0.66783 | 0.66783 | |
+| 50 | | 0.66511 | |
+| 100 | | | 0.66426 |
+| 150 | | 0.66049 | |
+| 200 | | | 0.66122 |
+| 300 | 0.65655 | | about 0.6586 |
+| us | 486 at 0.65315 | 302 at 0.65684 | 419 at 0.65684 |
 
 ---
 
@@ -461,10 +699,11 @@ More than 30 variants since Oct 20 changed the optimizer, schedule, length, widt
 | `submission_v7_int8.zip` (single GRU-128, mask-weighted loss) | 0.6824 | 0.65367 |
 | `submission_ens_v7v9_int8.zip` (two mask-weighted GRU-128) | 0.6850 (fp32 average, full valid) | 0.65542 |
 | `submission_ens_v18cv19a_int8.zip` (two GRU-128 with weight decay 0.05 / 0.1, data seeds 0 and 1, 339 KB) | 0.6867 (fp32 average, full valid) | **0.65684** (current best and fallback final) |
+| `submission_ens_v18cv24a_int8.zip` (two GRU-128 with weight decay 0.05, data seeds 0 and 2, 335 KB; scored by Nov 2, date approximate) | 0.6869 (fp32 average, full valid) | 0.65596 |
 
-- Our rank: about 532 after the first submission (Oct 17), 543-547 during Oct 18, 486 of 5,016 after the first ensemble, 372 of 5,057 after the mask-weighted pair (Oct 19), **302 of 5,111** after the weight-decay pair (Oct 20).
+- Our rank: about 532 after the first submission (Oct 17), 543-547 during Oct 18, 486 of 5,016 after the first ensemble, 372 of 5,057 after the mask-weighted pair (Oct 19), **302 of 5,111** after the weight-decay pair (Oct 20). With no better submission since, the same score has slipped to 398 of 5,660 (Nov 2) and 419 of 5,711 (Nov 5).
 - Why the leaderboard (0.65) is below local (0.68): the baseline drops by almost the same amount (0.617 to 0.5935), so the test set is simply harder than valid for everyone. It is not caused by checkpoint selection or by tuning to the valid mask (section 3, steps 1, 3 and 4).
-- Gains on valid shrink on the test set: the first ensemble gave +0.0025 locally and +0.00115 on the leaderboard (46%); v7+v9 kept about 67%; the weight-decay pair kept 79% (+0.0018 locally, +0.00142 on the leaderboard).
+- Gains on valid shrink on the test set: the first ensemble gave +0.0025 locally and +0.00115 on the leaderboard (46%); v7+v9 kept about 67%; the weight-decay pair kept 79% (+0.0018 locally, +0.00142 on the leaderboard). v18c+v24a was +0.0002 ahead of v18c+v19a on valid and 0.00088 behind on the leaderboard, so valid differences of that size do not carry over.
 - Only submitted and scored solutions can be picked as the final choice (section 1), so each real candidate is submitted once, after the team is told.
 
 ---
@@ -491,6 +730,7 @@ More than 30 variants since Oct 20 changed the optimizer, schedule, length, widt
 - A sanity check that fails is information. `ensemble_check9.py` stopped on a reference-value mismatch; the models were fine and the check's lookup was wrong. Fix the check, never raise its tolerance.
 - Shell detail: in a waiter script `echo "$(date) ... $?"` resets `$?` before it is printed; store `$?` in a variable first.
 - `ps -eo args` truncates long commands and `pgrep -f` also matches the wrapper shell; find the python PID once with `ps -ww -eo pid,comm,args` and wait with `kill -0 PID`.
+- A valid lead of +0.0002 means nothing on the leaderboard: v18c+v24a (valid 0.6869) scored 0.65596 against 0.65684 for v18c+v19a (valid 0.6867). Keep the +0.0015 build rule.
 - v9 was run with a trainer that saved only the best checkpoint, so it has no `_final.pt`; later checks use its best (step 51,200).
 - A `git push` was rejected once after a commit made from another tab; `git pull --rebase` and then `git push` fixed it. Never force-push.
 
@@ -500,12 +740,13 @@ More than 30 variants since Oct 20 changed the optimizer, schedule, length, widt
 
 Done (kept for the record):
 - Up to Oct 21: the mask is predictable and mask weighting works; weight decay 0.05-0.1 is the one knob that helped; the rules and prize pages were read.
-- Oct 21 to Nov 2: the specialist, a third data seed, distillation, input ablations and extra inputs, and a sharper mask model did not help (section 3, Oct 21 to Nov 2). The search is closed.
+- Oct 21 to Nov 5: the specialist, a third data seed, distillation, input ablations and extra inputs, a sharper mask model, three-model ensembles (ensemble_check11) and a unit embedding (v30) did not help (section 3, daily log Oct 21 to Nov 5). The search is closed.
+- v18c+v24a was submitted and scored 0.65596, so it is a scored fallback candidate.
 
 Final phase (deadline Nov 15, 11:59 PM UTC = 05:29 IST Nov 16; aim to finish everything by **Nov 14**):
 
 1. **Final candidates.**
-   - The main final choice is `submission_ens_v18cv19a_int8.zip` (leaderboard 0.65684, already scored).
+   - The main final choice is `submission_ens_v18cv19a_int8.zip` (leaderboard 0.65684, already scored). Already-scored fallbacks: `submission_ens_v18cv24a_int8.zip` (0.65596), `submission_ens_v7v9_int8.zip` (0.65542).
    - Only previously submitted and scored solutions can be selected, and the number of selections is not stated. So agree on the candidate list as a team, then **submit and score every final candidate by Nov 14**, one at a time and after telling the team.
    - A new build still needs at least +0.0015 over the pair on all valid and must not be lower on the 469.
    - No new training runs.
@@ -546,17 +787,18 @@ Final phase (deadline Nov 15, 11:59 PM UTC = 05:29 IST Nov 16; aim to finish eve
 | `train_v3m.py` | same, optionally also trained on valid (`--add-valid`); no gain |
 | `train_v4m.py` | adds `--arch lstm`; no gain |
 | `train_v5m.py`, `strip_aux.py`, `aux_checks.py` | auxiliary shifted-target heads (`--aux`, `--aux-weight`), converter to a normal 2-output checkpoint, alignment checks; no gain |
-| `train_multi.py` | trains K models from one stream of batches (per-model seed, alpha, layers, dropout, weight decay, lr, hidden size, EMA, auxiliary heads, input noise, distillation `kd`, row-weight power `wpow`, training chunk, feature dropout `fdrop`, classification head `cls`, input-group ablation `drop`, extra volume inputs `xvd` / `xagg`, and `--unit-filter` for specialists) |
+| `train_multi.py` | trains K models from one stream of batches (per-model seed, alpha, layers, dropout, weight decay, lr, hidden size, EMA, auxiliary heads, input noise, distillation `kd`, row-weight power `wpow`, training chunk, feature dropout `fdrop`, classification head `cls`, input-group ablation `drop`, extra volume inputs `xvd` / `xagg`, unit embedding `unitemb` / `unitpred`, and `--unit-filter` for specialists) |
 | `make_teacher.py`, `teacher_results.txt` | teacher predictions of the submitted pair on all train rows (for distillation, v25) |
 | `export_v4.py`, `solution_v4.py`, `lstm_export_check.py` | LSTM export and its checks |
 | `calib_check.py`, `calib_check_results.txt` | scaling by mask probability (no gain) |
-| `ensemble_check3.py` to `ensemble_check10.py` (+ `_results.txt`) | ensemble and pair checks on the 469 held-out and all 1,873 valid sequences |
+| `ensemble_check3.py` to `ensemble_check11.py` (+ `_results.txt`) | ensemble, pair and (check11) triple checks on the 469 held-out and all 1,873 valid sequences |
 | `output_filter_check.py`, `output_filter_check_results.txt` | causal smoothing and learned filters of the predictions (all lose) |
 | `feature_feasibility.py`, `feature_feasibility_results.txt` | what the anonymised columns are (quantile-transformed) and whether book features can be rebuilt (no) |
 | `io_bench.py` | disk read speed test (why training is disk-bound) |
 | `error_analysis.py`, `probe_features.py`, `residual_probe.py` | where the loss sits; GBM residual probe (no signal) |
 | `target_structure.py` | targets are integer multiples of a per-sequence unit; autocorrelation; relation to prices |
 | `unit_analysis.py`, `unit_probe.py`, `unit_labels.py`, `unit_group_eval.py` | per-unit score breakdown, unit recognition from the first steps, unit labels, in-group scores of the generalists |
+| `unit_pred.py`, `unit_pred_results.txt` | causal unit class per sequence from the first 20 steps (out of fold on train) for `unitpred=1` (v30) |
 | `EXPERIMENTS.md` | team rules, runs table, Discord facts, open questions, lessons |
 | `REPRODUCE.md` | exact pipeline for `submission_ens_v18cv19a_int8.zip`: commands, seeds, expected outputs and run times |
 | `REPORT_DRAFT.md` | skeleton of the 2-8 page technical report |
