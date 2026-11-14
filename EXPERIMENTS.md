@@ -174,3 +174,36 @@ Research resumed at the user's request. Implemented an isolated shared-stream co
 ## v33 full A/B/C comparison — requested run date 20261109
 
 **Running**, actual start 2026-11-08T19:08:53.930057+00:00, GPU 0, PID 3425234, run `v33_20261109_abc`. Five epochs, 64,500 matched updates/model; data/init seeds 0, hidden 128 × 2, batch 16, chunk 1000, lr .001, wd .05, alpha .5, n-val 1873, n-holdout 300, n-stats 64, eval-every 12800, existing train_maskp.npy. A original GRU; B learned 32-d tanh projection; C projection plus inclusive EMA deviations at 8/64/512 rows. Separate real-cache 300-update preflight: 10.748 updates/s per model; complete valid/holdout pass 80.7/5.8 s; peak allocated 1.78 GiB. Estimate 1 h 49 min including six evals; conservative 2 h 30 min (<6 h gate). Full process verified at step 100/64,500, 11.1 updates/s. Unique nohup outputs and held lock prevent duplicate v33 launch; all best/final checkpoints and curve logs are retained. Exact command, paths, source snapshot and receipts: [V33_RUN_20261109.md](V33_RUN_20261109.md). No result yet; no further experiments, submissions or pushes.
+
+## v33 investigation closed — November 9, 2026
+
+All A/B/C models finished 64,500 updates on November 8 at 20:54:51 UTC; shared elapsed 1 h 45 m 58 s. All best checkpoints are final (step 64,500). Original control A reproduces historical v18c weights bitwise and all stored metrics exactly. No checkpoints or evidence were removed.
+
+| Model | Final scored WP | t0 | t1 | All-required WP | Train-holdout WP | Own training compute |
+|---|---:|---:|---:|---:|---:|---:|
+| A original GRU | .6857267 | .6815191 | .6899343 | .5138374 | .4524342 | 572.0 s |
+| B projection only | .6833059 | .6789236 | .6876882 | .5112214 | .4495886 | 563.6 s |
+| C multiscale context | .6846189 | .6805585 | .6886793 | .5132822 | .4522493 | 4,477.3 s |
+
+C exceeds B at every logged scored evaluation, final +.0013130; C remains below A, final −.0011078. The fixed-pair evaluation used one shared pass over all 1,873 validation sequences, each model's own statistics, raw equal-weight means before clipping and correct recurrent/EMA resets. Reference .6867397281 reproduces .6867397 within 2.82e−8.
+
+| Pair | Scored WP | t0 | t1 | All-required WP | Diagnostic 469 WP | Scored Δ vs reference | Paired bootstrap 95% CI |
+|---|---:|---:|---:|---:|---:|---:|---|
+| v18c+v19a | .6867397 | .6824939 | .6909856 | .5164550 | .6937848 | 0 | reference |
+| C+v19a | .6866800 | .6825778 | .6907822 | .5171237 | .6941677 | −.0000597 | [−.0005957, +.0004258] |
+| C+v18c | .6868471 | .6827804 | .6909137 | .5171313 | .6943488 | +.0001074 | [−.0004362, +.0006303] |
+| B+v19a | .6858353 | .6815946 | .6900760 | .5158062 | .6920163 | −.0009045 | [−.0017080, −.0002612] |
+
+Bootstrap: 2,000 paired sequence resamples, fixed seed 20261109, percentile intervals for pooled global scored WP. These intervals do not account for training randomness or prior model selection. The existing 469-sequence subset (valid array index % 4 == 0) is diagnostic, not an untouched test set.
+
+**Conclusion:** C improves over projection-only B, but neither C pair establishes a meaningful scored-WP improvement over the existing ensemble. Initial v33 investigation closed; no submissions built and no further v33 training authorized here. Evidence: `V33_RUN_20261109.md`, `checkpoints/v33_20261109_abc/`, and `v33_results/ensemble_20261109_0536/` (per-sequence statistics, bootstrap draws, results, execution record and log).
+
+Exit-status clarification: evaluation process completed with exit status 0, and both evaluation and saved-artifact checks passed. A subsequent wrapper command ended with `ps -p 3487663 -o pid,stat,args`; the completed evaluator no longer existed, so `ps` returned 1 and set that wrapper command's status to 1. This was a terminal process-status check failure, not an evaluation failure. Existing logs were inspected; successful evaluation was not rerun.
+
+## v34 prepared — November 9, 2026 (no full training)
+
+Separate-file causal TCN vs unchanged shared-stream GRU control: 168→64 projection/ReLU, eight residual depthwise k3 temporal convolutions with dilations 1/2/4/8/16/32/64/128 and 64×64 pointwise mixers, ReLU inner/residual activations, linear two-target head; 511-row receptive field, 46,274 parameters. Per-block input history survives 1,000-row chunks, detaches only at TBPTT boundaries and resets per sequence. No feature-index convolution, sequence normalization or dropout. Causality/reset/warm-up/gradients/determinism pass; batched/cached-row errors ≤4.77e−7; control ten-update equality with existing trainer is bitwise. Real-cache 100-update shared preflight: 11.0 updates/s/model, full valid/holdout 33.5/2.8 s, peak 1.86 GiB allocated /2.42 GiB reserved. Matched seed0 statistics equal v18c exactly. Pinned-core matching-IObinding predict mean: fp32 286.19 µs, int8 292.29 µs, deployed pair 152.34 µs. Thus prototype CPU serving is currently slower; int8 smoke-weight errors max .023463, mean .003230 do not establish metric retention. Full training remains unlaunched. Concise architecture, checks, costs, limitations, proposed command and evidence paths: [V34_REPORT_20261109.md](V34_REPORT_20261109.md). All v33 artifacts preserved.
+
+## v34 streaming execution screen passed — November 9, 2026
+
+Same architecture/weights; no new training. Old streaming was already direct three-tap inference (zero Conv nodes) but performed per-row full-history reset masks, shift/copies and many indexed tensor ops. A separate compact fp32 ONNX graph with time-major circular block-input buffers, 256 prebound phases and one ORT call/row reduces history writes from two ~127.5-KiB reset/shift operations to 2 KiB/row (plus previous prices). Warmed five-repeat four-way matched callback means on core31/thread1: old fp32 278.51 µs, old int8 289.44, circular fp32 155.02, deployed pair 163.75 (ratio .947). Independent five-repeat two-way confirmation: circular122.46 vs deployed134.84 µs, ratio .908, per-repeat .895–.927; all pass ≤1.2× target. Complete callbacks include state maintenance. FP32 retained; no smaller architecture needed. Streaming/batched error ≤4.77e−7; wrapped state error ≤9.54e−7; reset, warm-up, determinism, future-perturbation and chunk-boundary checks pass. Operator profile and initial evidence preserved; profiling timings include instrumentation overhead. Smoke weights only; platform/runtime and trained-weight validation remain open. See [V34_STREAM_OPT_20261109.md](V34_STREAM_OPT_20261109.md), `v34_results/profile_20261109_0557/`, `ring_20261109_0600/`, `ring_confirm_20261109_0604/`. No full training, submission build, submission or push.
