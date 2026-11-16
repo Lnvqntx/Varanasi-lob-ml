@@ -1,20 +1,72 @@
 # Varanasi LOB ML
 
-> **Status — November 16, 2026**
-> - **Research complete.** Three previously scored INT8 submissions were selected and locked at approximately **17:21 IST / 11:51 UTC on November 16**. The confirmation page displayed: “All good! Your choice has been submitted.”
-> - **Confirmed selections:** v18c + v19a (**0.65684** public), v18c + v24a (**0.65596**) and v7 + v9 (**0.65542**). Exact ZIP names are in [Final selections and results](#4-final-selections-and-results).
-> - **Private results pending.** The final score will be the highest private score among the three selections. Latest observed **public** rank: **495/5,840 on November 16**; this is not the final competition placement.
-> - **Incumbent:** `submission_ens_v18cv19a_int8.zip`; recorded platform runtime **36m07s**, memory **624 MB**. Its **FP32** scored-row validation WP is **0.6867397**, distinct from the deployed INT8 public score of **0.65684**.
-> - **Selection is complete and cannot be changed.** No re-upload or further experiment is required. v34 was never fully trained; the audited triples were not submitted; no residual candidate ZIP was created.
-> - **Administrative items:** off-machine backups are **unconfirmed**; `REPORT_DRAFT.md` remains a draft. See [Closeout tasks](#6-closeout-tasks).
->
-> Platform confirmation, dates, rank, runtime and memory above are attributed to the **user's November 16 screenshots and organiser-email confirmation**. This documentation update did not independently access the website.
+**Causal limit order book forecasting · GRU ensembles · INT8 ONNX inference**
 
-Team **Varanasi**: Alfa Connectome ML Competition (Wunder Fund), limit order book prediction.
+Research and inference code for **Team Varanasi** in the **Wunder Fund Alfa Connectome ML Competition**. The task is to predict two future price-movement indicators from anonymized order book and trade data, under a single-CPU streaming inference budget.
 
-> This repo is private on purpose. The competition rules forbid sharing code, models or detailed strategy before the competition ends. Model weights, caches and submission zips are never committed (see `.gitignore`).
+**Team:** Lnvqntx · Mukesh · TejasCS  
+**Last updated:** November 16, 2026
 
-**Team:** Lnvqntx, Mukesh, TejasCS.
+[Results](#4-final-selections-and-results) · [Research history](#3-everything-we-did-in-order) · [Reproduction](REPRODUCE.md) · [Experiments](EXPERIMENTS.md) · [Code guide](#7-repo-contents)
+
+---
+
+## Project at a glance
+
+| Item | Recorded outcome |
+|---|---|
+| Best public score | **0.65684**, deployed INT8 ensemble: **v18c + v19a** |
+| Public rank snapshot | **495 / 5,840**, observed November 16; **not the final placement** |
+| Local validation | **0.6867397** weighted Pearson for the FP32 pair on 1,873 sequences |
+| Platform inference | **36m07s · 624 MB** for the best public submission |
+| Final selections | **Three submissions confirmed and locked** on November 16 |
+| Private evaluation | **Results pending** |
+
+Public scores, rank, selection confirmation and platform resource measurements are recorded from the team's November 16 screenshots and organiser email. The local FP32 validation score and deployed INT8 public score use different evaluation data and must not be treated as interchangeable.
+
+### Approach
+
+- **Causal features:** 168 inputs built from the supplied 112 features, including price changes and missing-value flags.
+- **Sequence models:** two-layer GRUs with 128 hidden units; the best submitted pair combines models trained with different seeds and weight decay.
+- **Streaming deployment:** explicit input standardization, INT8 ONNX inference, persistent recurrent state within each sequence and resets between sequences.
+- **Measured iteration:** feature ablations, loss and architecture comparisons, ensemble audits, deterministic checks and CPU timing. Validation was reused throughout development; small gains are not independent evidence of generalization.
+
+### Final selections
+
+| Selected ensemble | Public score | Status |
+|---|---:|---|
+| **v18c + v19a** | **0.65684** | Confirmed |
+| v18c + v24a | 0.65596 | Confirmed |
+| v7 + v9 | 0.65542 | Confirmed |
+
+The platform will use the **highest private score** among these three. Selection was confirmed at approximately **17:21 IST / 11:51 UTC on November 16** and cannot be changed. Exact artifact names and evaluation caveats appear in [Final selections and results](#4-final-selections-and-results).
+
+### Start here
+
+| Document | Purpose |
+|---|---|
+| [REPRODUCE.md](REPRODUCE.md) | Recorded reconstruction commands, seeds, artifact provenance and verification limits |
+| [EXPERIMENTS.md](EXPERIMENTS.md) | Detailed experiment ledger and historical run instructions |
+| [Final ensemble audit](FINAL_ENSEMBLE_AUDIT_20261114.md) | Fixed-checkpoint comparisons, uncertainty estimates and exported-triple runtime measurements |
+| [Bounded residual experiment](BOUNDED_RESIDUAL_FINAL_20261114.md) | Final 32.1-minute attempt; neither residual pair improved the incumbent |
+| [v34 streaming prototype](V34_STREAM_OPT_20261109.md) | Circular-cache optimization; smoke benchmarks only, no full training or platform certification |
+| [Technical report draft](REPORT_DRAFT.md) | Work in progress with unresolved TODOs; not a final report |
+
+**Access and artifacts.** The repository remains private pending confirmation that public code sharing is permitted. Competition data, model weights, caches and submission archives are excluded from Git. Reproduction requires the relevant external artifacts; this repository is not a standalone submission package. Required files were downloaded off-machine according to the maintainer's November 16 confirmation; backup contents and integrity were not independently checked.
+
+<details>
+<summary><strong>Contents</strong></summary>
+
+1. [Competition and evaluation](#1-the-competition-in-plain-words)
+2. [Compute setup](#2-compute-setup-our-university-gpu-machine)
+3. [Dated research history](#3-everything-we-did-in-order)
+4. [Final selections and results](#4-final-selections-and-results)
+5. [Lessons and corrections](#5-what-went-wrong-or-was-misjudged-so-we-do-not-repeat-it)
+6. [Closeout tasks](#6-closeout-tasks)
+7. [Repository contents](#7-repo-contents)
+8. [Reproduction and verification limits](#8-reproduction-summary-and-verification-limits)
+
+</details>
 
 ---
 
@@ -91,6 +143,11 @@ Rules we agreed inside the team (from Oct 18, details in `EXPERIMENTS.md`):
 ---
 
 ## 3. Everything we did, in order
+
+The complete dated record is preserved below, including unsuccessful experiments, corrections and historical leaderboard snapshots.
+
+<details>
+<summary><strong>Expand the full research history — October 15 to November 16, 2026</strong></summary>
 
 ### Day 1 (Oct 15, night): understanding
 Read all competition pages (task, data, submission guide, rules, timeline, prizes, FAQ). Worked out the key constraint early: the whole test set must run in 60 minutes on one core. At first I estimated about 10 microseconds per row; that was wrong, the correct budget is about 90 microseconds per row (3,600 s / 39.4M rows). Planned: starter pack, baseline, own validation, better model, shrink to fit limits.
@@ -809,6 +866,8 @@ Observed public rank at 0.65684: 398/5,660 (Nov 2), 419/5,711 (Nov 5), and **495
 
 ---
 
+</details>
+
 ## 4. Final selections and results
 
 All three rows below are **selected, submitted and locked**. Public scores are for deployed **INT8** submissions; local scores are **FP32** raw-prediction averages on all 1,873 validation sequences, not full-validation INT8 measurements. Earlier submissions remain in the historical table above.
@@ -858,7 +917,7 @@ The unchanged-baseline calibration also showed a local-to-public drop (0.617052 
 - **Complete:** research through the November 14 bounded attempt; three previously scored final submissions selected and confirmed on November 16. No further experiment, submission, re-upload or selection change is required.
 - **Pending:** private scores and final placement. Record those results when released; the observed public rank is not a final result.
 - **Draft:** [REPORT_DRAFT.md](REPORT_DRAFT.md) still contains TODOs for final selections, results and verification-package details. It has not been established as a finished technical report.
-- **Backups unconfirmed:** the inspected records do not establish off-machine backup completion. Preserve the three selected ZIPs, their checkpoints (v18c, v19a, v24a, v7 and v9), preprocessing/mask-cache provenance and source evidence; confirm any external copies separately. This is an archival status, not a requirement to rerun or re-upload competition artifacts.
+- **Backups reported complete:** the maintainer confirmed on November 16 that the required files had been downloaded off-machine. This is a user-reported status; the external copies and their integrity were not independently checked. The archival set should preserve the selected ZIPs, their checkpoints, preprocessing/mask-cache provenance and source evidence.
 - **Conditional verification:** if requested by the organisers, use [REPRODUCE.md](REPRODUCE.md), the saved checkpoints/source versions and determinism evidence. The full raw-data pipeline and full-validation INT8 checks have limits noted in the reproduction record; do not describe unperformed checks as completed.
 - **Repository:** remains private. This closeout does not change visibility or release code publicly.
 
