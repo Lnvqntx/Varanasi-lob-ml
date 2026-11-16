@@ -1,20 +1,14 @@
 # Varanasi LOB ML
 
-> **Status as of Nov 5**
-> - **Best submission:** `submission_ens_v18cv19a_int8.zip` (v18c + v19a, two int8 GRU-128): leaderboard **0.65684**, rank **419 of 5,711** (read Nov 5). Valid 0.6867 on all 1,873 sequences, 0.6938 on the 469 held out.
-> - **Second candidate:** `submission_ens_v18cv24a_int8.zip` (v18c + v24a), leaderboard 0.65596. Other scored fallbacks: `submission_ens_v7v9_int8.zip` 0.65542, `submission_v7_int8.zip` 0.65367.
-> - **Modelling is stopped.** Seven experiments in a row (v26 to v32) gave no gain over v18c.
-> - **Running:** nothing. v32, the last run, finished Nov 5 16:15 UTC; its evaluation finished at 16:17.
-> - **Left to do:**
->   - the 2-8 page report (`REPORT_DRAFT.md`);
->   - off-machine backups of the two zips (v18c + v19a, v18c + v24a) and of the v18c, v19a and v24a checkpoints;
->   - the final selection, with every candidate submitted and scored by **Nov 14**.
->   - Final submission day is Nov 15: 23:59 UTC = **Nov 16 05:29 IST**.
->   - If we reach the top 8: the verification package (`REPRODUCE.md`, code, determinism evidence).
-> - **Conclusion:** none of the more than 40 variants trained since Oct 20 beat v18c (0.6857 scored / 0.5138 all rows) by more than seed noise (about 0.0013). The best was +0.0001 (v25b).
->   - Three sets fall outside that range: the deliberate input ablations (v27), the coarse-unit specialist (v21, scored in-group only and 0.012-0.028 worse) and the unit-normalised outputs (v31, 0.0035 to 0.0984 worse).
->   - Every other attempt, v32's Pearson loss included, landed between -0.0038 and +0.0001, most of them within 0.002 of v18c.
->   - No ensemble beat v18c + v19a by the +0.0015 build rule.
+> **Status — November 16, 2026**
+> - **Research complete.** Three previously scored INT8 submissions were selected and locked at approximately **17:21 IST / 11:51 UTC on November 16**. The confirmation page displayed: “All good! Your choice has been submitted.”
+> - **Confirmed selections:** v18c + v19a (**0.65684** public), v18c + v24a (**0.65596**) and v7 + v9 (**0.65542**). Exact ZIP names are in [Final selections and results](#4-final-selections-and-results).
+> - **Private results pending.** The final score will be the highest private score among the three selections. Latest observed **public** rank: **495/5,840 on November 16**; this is not the final competition placement.
+> - **Incumbent:** `submission_ens_v18cv19a_int8.zip`; recorded platform runtime **36m07s**, memory **624 MB**. Its **FP32** scored-row validation WP is **0.6867397**, distinct from the deployed INT8 public score of **0.65684**.
+> - **Selection is complete and cannot be changed.** No re-upload or further experiment is required. v34 was never fully trained; the audited triples were not submitted; no residual candidate ZIP was created.
+> - **Administrative items:** off-machine backups are **unconfirmed**; `REPORT_DRAFT.md` remains a draft. See [Closeout tasks](#6-closeout-tasks).
+>
+> Platform confirmation, dates, rank, runtime and memory above are attributed to the **user's November 16 screenshots and organiser-email confirmation**. This documentation update did not independently access the website.
 
 Team **Varanasi**: Alfa Connectome ML Competition (Wunder Fund), limit order book prediction.
 
@@ -39,7 +33,7 @@ Wunder Fund (a high-frequency trading firm) gives anonymized real market data fr
 
 **Limits:** 1 vCPU, 16 GB RAM, no GPU, no internet, 60 minutes for the whole test set (39.4M rows, so about 90 microseconds per row), 20 MB zip, deterministic output. 5 submissions per day per team.
 
-**Dates:** start Sep 11, team deadline Nov 1 (23:59 UTC), last submission Nov 15, winners Dec 1. Prize pool $13,600, paid to the **top 8 on the private leaderboard** ($5,000 / 2,500 / 1,700 / 1,300 / 1,000 / 800 / 700 / 600). Top 8 must pass verification within 7 days of the preliminary results (inference code, training code with fixed seeds, 2-8 page report, 30-60 minute code-review call, internal-use license).
+**Originally published dates:** start Sep 11, team deadline Nov 1 (23:59 UTC), last submission Nov 15, winners scheduled for Dec 1. The separately confirmed submission and final-selection deadlines are recorded below. Prize pool $13,600, paid to the **top 8 on the private leaderboard** ($5,000 / 2,500 / 1,700 / 1,300 / 1,000 / 800 / 700 / 600). Top 8 must pass verification within 7 days of the preliminary results (inference code, training code with fixed seeds, 2-8 page report, 30-60 minute code-review call, internal-use license).
 
 **Data:** train 10,607 sequences (212M rows), valid 1,873 sequences (37.5M rows) plus a separate validation mask. Test: 1,970 sequences (39.4M rows), mask hidden. The provided starter baseline is a stateful GRU scoring **0.617052** on the full validation set.
 
@@ -47,12 +41,24 @@ Wunder Fund (a high-frequency trading firm) gives anonymized real market data fr
 - The supplied validation set and mask are "one useful validation setup based on a selected subset of moments". The test mask is hidden and may select different moments, so predictions must be reliable at all required moments.
 - A strong score on the visible validation subset does not guarantee a strong test score; there is a "private final test".
 - Only the provided train and valid data may be used for training; open-source pre-trained models are allowed if they contain no external market data.
-- Read on Oct 19 (rules and timeline pages): the final ranking is the **Private Leaderboard**. Near the end the team leader selects some previously submitted and scored solutions, which are re-scored on the Final Dataset. Ties go to the earlier submission. So every candidate for the final choice must already have been submitted and scored before Nov 15.
+- Read on Oct 19 (rules and timeline pages): the final ranking is the **Private Leaderboard**. Near the end the team leader selects some previously submitted and scored solutions, which are re-scored on the Final Dataset. Ties go to the earlier submission. Every candidate for the final choice therefore had to be submitted and scored by the new-submission cutoff; the confirmed date/time is below.
 - Read on Oct 26 (starter-pack docs: data_overview.md, rules.md, faq.md, timeline.md):
   - Scored rows are `need_prediction AND is_scored`. The test mask is hidden and applied by the platform after inference, and the docs give no rule for how rows are chosen (only "a selected subset of moments"). So we predict every required row as if it were scored.
-  - The number of final selections is not specified: rules.md says only that the team will "choose some" previously submitted and scored solutions.
-  - All deadlines are 11:59 PM UTC, which is 5:29 AM IST the next day. Team merge Nov 1 (from the competition site, read Oct 19; the local timeline.md does not list it), final submission Nov 15 (05:29 IST Nov 16), winners Dec 1.
+  - Those documents did not specify the number of final selections. The later email and the three confirmed selections are recorded below.
+  - The October documents listed end-of-day deadlines at 23:59 UTC / 05:29 IST the next day, including the Nov 1 team merge and Nov 15 new-submission cutoff. The later final-selection deadline is separate; see the November 16 confirmation below.
   - The bid/ask split is by column index only: p/v 0-10 are bid, 11-21 ask. The index is an identifier, not a depth level.
+
+---
+
+### Final selection and deadlines (confirmed November 16)
+
+The following platform facts come from the **user's November 16 screenshots and organiser-email confirmation**, not an independent website check:
+
+- New submissions closed **Sunday, November 15, 2026 at 23:59 UTC / Monday, November 16 at 05:29 IST**.
+- The organiser's email gives a separate final-selection deadline: **Tuesday, November 17 at 12:00 UTC / 17:30 IST**. Submitted selections cannot be changed.
+- Our three selections were successfully submitted and locked on **Monday, November 16 at approximately 17:21 IST / 11:51 UTC**. No further selection action is required.
+- The final score is the highest private score among these three. If a participant makes no selection, the organiser automatically selects their three best public-scoring submissions; that fallback is not needed for our confirmed selection.
+- The organiser states that submissions which avoided a timeout on the public dataset will also avoid a timeout on the final dataset. This statement concerns already accepted submissions; it does not certify unsubmitted experimental exports.
 
 ---
 
@@ -158,7 +164,7 @@ The day was spent on one question (why 0.680 locally but 0.652 on the leaderboar
 We submitted the official starter `baseline_submission.zip` unchanged, to see how far the baseline's leaderboard score sits from its local 0.617052.
 - Baseline leaderboard score: **0.59353**, a drop of 0.0235 from its local score.
 - Our v2: 0.679703 local to 0.65200 leaderboard, a drop of 0.0275.
-- So the test set is harder for everyone, not only for us. Our lead over the baseline is 0.0585 on the leaderboard against 0.0627 locally. This corrects what I wrote on Oct 17 (that checkpoint selection optimism explained the gap).
+- Both the unchanged baseline and our model scored lower publicly, consistent with a difference between validation and test periods. Our lead over the baseline is 0.0585 publicly against 0.0627 locally. This corrects the Oct 17 explanation based only on checkpoint-selection optimism; it does not exclude selection effects.
 
 **2. Longer training runs v3 and v4 (run by teammates on the shared login)**
 Both used hidden 128 and picked checkpoints on all 1,873 valid sequences.
@@ -203,7 +209,7 @@ Repeated the v4 setup (hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300`) wit
 | v5 | 1 | 0.6801 | 0.6791 | 0.5076 at the final step |
 | v6 | 2 | 0.6793 | 0.6788 | 0.5064 at the final step |
 
-- Spread across seeds is about 0.0013. v2, v3 (best), v4, v5 and v6 are therefore the same model for practical purposes; the recipe is at a ceiling near 0.680 and differences below about 0.002 mean nothing.
+- Spread across these seeds is about 0.0013. The tested plain-GRU variants clustered near 0.680; small single-run differences were not sufficient evidence of a reliable improvement.
 - v5 as a single int8 build scored **0.680082** on full valid (fp32 0.6801), 59.1 us/row in `predict()`, 71.8 us/row overall including parquet reads and the scorer loop (44.8 minutes for 37.46M rows, about 47.1 minutes projected for 39.4M rows on the pinned core). Not submitted alone, because it is only about 0.0004 better than v2.
 - Small export slip: `export_v2.py --int8` needs `--cell matmul`; the first attempt stopped on that assertion and was rerun with the flag.
 
@@ -257,7 +263,7 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 - The top 10 are within 0.003 of each other. We are about 0.0168 behind rank 8 and 0.0193 behind rank 1. Around our position, +0.001 is worth roughly 40-50 places.
 - Several teams have 100-183 submissions; we have 3. The final ranking probably uses different test data from the public board, so heavy tuning against the public board may not hold. We have not tuned to it.
 
-### Daily log, Oct 19 to Nov 5
+### Daily log, Oct 19 to Nov 16
 
 **How to read it**
 - **Dates and times are UTC** (the machine clock). They come from:
@@ -268,11 +274,11 @@ For every valid batch, ran each model once and averaged the raw outputs of every
 - **What the numbers mean:**
   - "scored" is the global weighted Pearson on valid `is_scored` rows with step >= 99, over all 1,873 valid sequences.
   - "all rows" is the same metric on every row with step >= 99.
-  - "the 469" are the held-out valid sequences (index % 4 == 0), which the mask models never saw.
+  - "the 469" are validation sequences with array index % 4 == 0, historically held out of mask-model fitting. They were repeatedly used for diagnostics and model decisions; they are **not untouched validation**. The full validation set was also reused.
   - "Gap" is the difference to the control named in the line. From the evening of Oct 20 the control is **v18c, 0.6857 scored / 0.5138 all rows**. Seed noise is about 0.0013.
 - **Where things are:** the full rows are in `EXPERIMENTS.md`, and the summary tables are under "Reference tables" below.
 
-**How to keep this README current:** add one dated heading (`### Mon DD (Day)`) per working day, appended at the end of that day. List in order what was done, with run names, finals (scored / all rows), the gap to the control, the decisions, and the mistakes or corrections. A day with no work gets a heading with "No logged work". Update the "Status" block at the top whenever the best submission, the candidates or what is running changes.
+**Record convention:** retain dated results and the decisions made at the time. New entries cover documented activity only; gaps do not establish that work occurred. UTC timestamps take precedence over run labels. Older launch reports may still say "running" or "not launched"; their completed outcomes are linked in the later entries below.
 
 ### Oct 19 (Mon)
 1. **Rules and prizes read** (rules and timeline pages).
@@ -361,7 +367,7 @@ For every valid batch, ran each model once and averaged the raw outputs of every
     - v17a, dropout 0.2: 0.6846 / 0.5128.
     - v17b, dropout alone at wd 0.01: 0.6821 / 0.5086.
     - v17c, a replicate of v16a with init seed 1: 0.6852 / 0.5140.
-    - Verdict: **weight decay 0.05 helps**. The three wd 0.05 runs (v16a, v17a, v17c) average 0.6847, +0.0023 over the mean of v7, v9 and v13; dropout does nothing.
+    - Verdict: **weight decay 0.05 helps**. The three wd 0.05 runs (v16a, v17a, v17c) average 0.6847, +0.0023 over the mean of v7, v9 and v13; dropout did not show a consistent benefit in these comparisons.
 11. **ensemble_check8** (13:51).
     - The wd models that share data seed 0 are near-duplicates: residual correlation 0.990-0.992.
     - Best pair v17a+v17c 0.6859, only +0.0010 over v7+v9, so the build rule was not met.
@@ -438,7 +444,7 @@ No logged work (no commits, runs or result files dated this day).
 4. **v18c+v24a int8 built on request** (zip 12:35, 335,138 bytes), even though ensemble_check10's rule was not met.
    - int8 loss +0.000033 on the first 100 valid sequences.
    - 112.9 us/row against 114.5 for v18c+v19a in the same bench, projected 39.2 min.
-   - Kept as a candidate; scored on the leaderboard by Nov 2.
+   - Submitted **October 23**, as confirmed by the user on November 16; public score **0.65596**. This corrects the earlier approximate submission date.
 5. **v26**, K = 6 (12:55-14:17).
    - Training chunk 2,000: 0.6829 / 0.5115 (-0.0028).
    - Training chunk 4,000: 0.6819 / 0.5091 (-0.0038).
@@ -454,7 +460,7 @@ No logged work.
 ### Oct 25 (Sun)
 1. **Feature feasibility** (`feature_feasibility.py`, 16:55).
    - The 112 columns are quantile-transformed, and the price index is not a depth level.
-   - So mid, spread, imbalance and microprice cannot be rebuilt exactly. Their proxies add only noise (-0.02 to +0.005).
+   - So mid, spread, imbalance and microprice cannot be rebuilt exactly. The proxy-feature check changed the held-out linear-model score by -0.02 to +0.005, without a consistent gain.
    - No new-feature run.
 2. **Output post-filters** (`output_filter_check.py`, 17:04): smoothing and a learned causal filter lose in every fold (-0.0003 to -0.035). Closed.
 3. **v27**, input-group ablation, K = 6 (17:29-18:50). Each run sets one input group to zero.
@@ -478,7 +484,7 @@ No logged work.
 3. **Starter-pack docs read** (data_overview, rules, faq, timeline).
    - Scored rows are `need_prediction AND is_scored`.
    - The number of final selections is not specified.
-   - Every deadline is 23:59 UTC, which is 05:29 IST the next day.
+   - The submission cutoff was recorded as 23:59 UTC / 05:29 IST the next day. The later final-selection email specifies a separate deadline; see the November 16 entry.
    - Bid and ask are split by column index.
 
 ### Oct 27 (Tue)
@@ -516,7 +522,7 @@ No logged work. The team-merge deadline (23:59 UTC) passed.
 1. **v29 finals logged**, and the README summary for Oct 21 to Nov 2 written (commit 14:34).
 2. **Leaderboard: rank 398 of 5,660** at 0.65684, down from 302 of 5,111 on Oct 20; we had no better submission since, and other teams moved past us.
 3. **Discord remarks**: what was said that day is not recorded in our files. The Oct 31 facts stand.
-4. **v18c+v24a on the leaderboard: 0.65596** (the submission date is approximate; the score was known by Nov 2).
+4. **v18c+v24a public score recorded: 0.65596**. The score was known by this Nov 2 entry; the user later confirmed **October 23** as the submission date on November 16.
    - That is -0.00088 below v18c+v19a and +0.00054 above v7+v9, so it is our second-best scored submission and a fallback candidate.
    - On valid it had been +0.0002 / +0.0001 ahead of v18c+v19a. Valid differences that small say nothing about the leaderboard.
    - 7 leaderboard submissions used so far.
@@ -544,7 +550,7 @@ No logged work.
    - **v30a**, embedding size 8: 0.6847 / 0.5142 (-0.0010 / +0.0004).
    - **v30b**, size 16: 0.6853 / 0.5146 (-0.0004 / +0.0008).
    - **v30c**, size 8 with init seed 1: 0.6848 / 0.5143 (-0.0009 / +0.0005).
-   - **No gain.** This matches the unit probe: the GRU already knows the unit.
+   - **No measured gain.** The result is consistent with the unit probe, but does not directly establish what the GRU represents internally.
    - A per-unit (coarse-group) evaluation was not run.
 4. **Correction:** I first wrote that v30's training and holdout sequences all got the right unit. The run log shows 0.99990 on the training sequences (sequence 3018 is among them) and 1.00000 on the holdout. Fixed in `EXPERIMENTS.md`.
 5. **Leaderboard read: rank 419 of 5,711 at 0.65684.**
@@ -599,11 +605,70 @@ No logged work.
      - **v32c**, pearson with alpha 0.0: 0.6842 / 0.5039 (-0.0015 / -0.0100). This is the same pattern as v8c, wMSE with alpha 0.0, which lost 0.0089 on all rows against v4.
    - Output scale: a* = Σ w y o / Σ w o² on valid scored rows is 0.94-1.00 for all three (v18c 0.99). Scaling changes no score by more than 0.0001 (`pearson_scale_eval.py`, 16:15-16:17, run alone; 8 sanity checks pass).
    - **No gain.** wMSE with these weights already tracks the metric.
-10. **Modelling stopped.** Seven experiments in a row (v26 to v32) gave no gain over v18c.
+10. **Modelling paused at this point.** Seven experiments in a row (v26 to v32) gave no gain over v18c. Work resumed on November 8; the subsequent tests and final decisions are recorded below.
+
+### Nov 8 (Sun)
+
+1. **v33 preparation and controlled training.** [V33.md](V33.md) records the hypothesis and checks: unchanged 168-input preprocessing; A, the original GRU; B, a learned 32-dimensional tanh projection; C, that projection plus deviations from causal exponential averages with half-lives 8, 64 and 512 rows. B/C feed a two-layer GRU-128. Averages and hidden state carry across 1,000-row chunks, detach at training boundaries and update throughout warm-up.
+2. **Matched full comparison:** shared batches, seed-0 split/order/statistics, mask weighting alpha 0.5, weight decay 0.05 and five epochs, **64,500 updates per model**. The requested run label is `v33_20261109_abc`, but actual training ran **November 8, 19:08:53–20:54:51 UTC** (**November 9, 00:38:53–02:24:51 IST**), elapsed **1h45m58s**. A reproduced historical v18c weights bitwise. All best checkpoints were final.
+
+| v33 configuration | Final FP32 scored WP | All-required WP | Train-holdout WP |
+|---|---:|---:|---:|
+| A: original GRU | 0.6857267 | 0.5138374 | 0.4524342 |
+| B: projection only | 0.6833059 | 0.5112214 | 0.4495886 |
+| C: multiscale context | 0.6846189 | 0.5132822 | 0.4522493 |
+
+C improved on B by **0.0013130**, but remained **0.0011078 below A**. [V33_RUN_20261109.md](V33_RUN_20261109.md) is the historical launch record; the completed results are recorded in the [November 9 v33 closeout](EXPERIMENTS.md#v33-investigation-closed--november-9-2026), not a currently running job.
+
+### Nov 9 (Mon)
+
+1. **v33 ensemble complementarity.** One shared pass over all 1,873 validation sequences, each model's own preprocessing and raw equal-weight averages before clipping, reproduced the incumbent at **0.6867397281**.
+
+| Fixed pair | FP32 scored WP | Difference from incumbent | Paired 95% interval |
+|---|---:|---:|---|
+| C + v19a | 0.6866800 | -0.0000597 | [-0.0005957, +0.0004258] |
+| C + v18c | 0.6868471 | +0.0001074 | [-0.0004362, +0.0006303] |
+| B + v19a | 0.6858353 | -0.0009045 | [-0.0017080, -0.0002612] |
+
+   Neither C pair established a meaningful scored-WP improvement. These percentile intervals use 2,000 paired whole-sequence resamples, seed 20261109; they do not include training randomness or prior model selection. The reused 469-sequence subset is diagnostic. Per-sequence statistics, bootstrap draws and logs remain in `v33_results/ensemble_20261109_0536/`. A later shell status of 1 came from `ps` finding the already-finished evaluator, not an evaluation failure.
+
+2. **v34 architecture prepared, never fully trained.** Existing preprocessing → 168-to-64 projection/ReLU → eight residual depthwise temporal convolutions, kernel 3, dilations 1–128, with pointwise mixing → two-output head. The model has **46,274 parameters**, a **511-row receptive field** and **127.5 KiB** of per-sequence history. Causality, warm-up, resets, gradients and chunk/stream equivalence passed. Only a **100-update real-cache preflight** was run; no full v34 accuracy result exists. See [V34_REPORT_20261109.md](V34_REPORT_20261109.md).
+3. **v34 streaming optimized without changing the architecture.** The first callback benchmark measured **286.19 µs/row FP32**, **292.29 INT8** and **152.34** for the deployed pair. Profiling found that the graph already used three temporal taps, but performed unnecessary history resets/shifts and indexed operations. Circular histories and prebound IOBinding reduced state writes to 2 KiB/row, with one ORT call per row. In a separate five-repeat two-way benchmark, optimized FP32 v34 measured **122.46 µs/row** versus **134.84** for the deployed pair (**0.908×**), passing the 1.2× screen. Output error versus batched inference was at most **4.77e-7**. Different benchmark interleavings have different absolute times; these are measured local callbacks, not platform-runtime guarantees. The tests used smoke weights; v34 was neither fully trained nor submitted. See [V34_STREAM_OPT_20261109.md](V34_STREAM_OPT_20261109.md).
+
+### Nov 14 (Sat)
+
+1. **Final fixed-checkpoint audit.** The exact saved v18c, v19a, v24a and v13 LSTM checkpoints were evaluated in one shared full-validation pass. The incumbent reproduced **0.6867397281**; all audited metrics matched `ensemble_check11` within **2.87e-12**.
+
+| Fixed blend | FP32 scored WP | All-required WP | Difference from incumbent | Paired 95% interval |
+|---|---:|---:|---:|---|
+| v18c + v19a | 0.6867397 | 0.5164550 | 0 | reference |
+| v18c + v24a + v13 | 0.6873498 | 0.5176482 | +0.0006100 | [-0.0000344, +0.0013085] |
+| v18c + v19a + v13 | 0.6871564 | 0.5176119 | +0.0004166 | [-0.0000916, +0.0009430] |
+
+   Both candidate intervals include zero (2,000 paired sequence resamples, seed 20261114), and neither gain met the existing +0.0015 build rule. The strongest triple's actual exported callback measured **329.33 µs/row FP32 / 213.99 INT8**, versus **128.79** for the deployed incumbent; INT8 resident memory was **52.4 MiB**. Its local full-test estimate was **140.5 minutes**, or **180.7** with 25% plus five-minute margin. Even the historical 1.89× platform-speed scenario gave **97.9 minutes with margin**; that scenario was not a platform measurement. Audit-only graphs were built, but **the triples were not submitted**, and full-validation INT8 score retention was not established. The incumbent was retained. See [FINAL_ENSEMBLE_AUDIT_20261114.md](FINAL_ENSEMBLE_AUDIT_20261114.md).
+
+2. **Final bounded residual-head experiment.** The saved v18c GRU and original output head were frozen. A was untouched; B added a zero-initialized linear residual on hidden state; C added a 128→32→2 ReLU residual with zero output initialization. A 100-update training-only pilot set one fixed budget: **25,800 updates per head, two epochs**, with shared frozen-backbone computation, identical masks/loss/batches and no validation-target training. The backbone remained bitwise unchanged.
+
+| Model or pair | FP32 scored WP | All-required WP | Difference from incumbent |
+|---|---:|---:|---:|
+| A | 0.6857267071 | 0.5138373995 | -0.0010130211 |
+| B | 0.6853658549 | 0.5130313474 | -0.0013738732 |
+| C | 0.6854536465 | 0.5130385663 | -0.0012860816 |
+| A + v19a | 0.6867397281 | 0.5164549890 | 0 |
+| B + v19a | 0.6867321719 | 0.5163323561 | -0.0000075562 |
+| C + v19a | 0.6866978683 | 0.5162292958 | -0.0000418598 |
+
+   The attempt completed in **32.1 minutes**, from **19:52:18 to 20:24:23 UTC**, including the interrupted initial inspection; training took **23m36s**, full validation **91.62s**. **Neither residual-head pair improved the incumbent. No residual candidate ZIP was created.** The accuracy gate failed, so export/runtime certification was not pursued; the prepared exporter helper was not executed. This one-seed bounded result does not establish a general limit on residual models. The attempt ended with the incumbent retained. See [BOUNDED_RESIDUAL_FINAL_20261114.md](BOUNDED_RESIDUAL_FINAL_20261114.md).
+
+### Nov 16 (Mon)
+
+**Competition work closed; final selection confirmed.** According to the user's November 16 screenshots and organiser-email confirmation, the three submissions in [Final selections and results](#4-final-selections-and-results) were selected and locked at approximately **17:21 IST / 11:51 UTC**. The page displayed: **“All good! Your choice has been submitted.”** The final score will be the highest private score among them. Latest observed public rank: **495/5,840**; private results and final placement are pending.
+
+The incumbent's recorded platform runtime/memory is **36m07s / 624 MB**, distinct from local estimates. The separate submission and selection deadlines, automatic-selection rule and organiser timeout assurance are recorded in [Final selection and deadlines](#final-selection-and-deadlines-confirmed-november-16). Our selection is complete and cannot be changed; no re-upload or further experiment is required. The repository remains private; no public code release is recorded.
 
 ### Reference tables
 
-Summary tables from the earlier "Days 5-7" and "Oct 21 to Nov 2" sections, unchanged except for new rows: v24 in the weight-decay table, v30, the Nov 2 submission and the leaderboard snapshots. Unless a row says otherwise, every run from v20 on used v18c's settings: hidden 128, 2 layers, no dropout, alpha 0.5, wd 0.05, lr 1e-3, 5 epochs, data seed 0, init seed 0. Those runs share v18c's batches, so the gap comes from the change alone. The full rows, with every evaluation step, are in `EXPERIMENTS.md`.
+Historical summary tables through November 5; the later v33/v34, audit and residual-head results are in the dated entries above. Unless a row says otherwise, the v20–v32 generalist runs used v18c's settings: hidden 128, 2 layers, no dropout, alpha 0.5, wd 0.05, lr 1e-3, 5 epochs, data seed 0, init seed 0. Those runs share v18c's batches, so the gap comes from the change alone. The full rows, with every evaluation step, are in `EXPERIMENTS.md`.
 
 **Mask-weighted loss** (Oct 19, `train_v2m.py`). The loss weight is multiplied by m = alpha + (1 - alpha) * min(p / mean_p, 20). All runs: hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300`.
 
@@ -711,7 +776,9 @@ Summary tables from the earlier "Days 5-7" and "Oct 21 to Nov 2" sections, uncha
 | v30b | 16, init seed 0 | 0.6853 / 0.5146 | -0.0004 / +0.0008 |
 | v30c | 8, init seed 1 | 0.6848 / 0.5143 | -0.0009 / +0.0005 |
 
-**Leaderboard history** (7 submissions used, including the baseline calibration)
+**Historical public-submission results** (7 submissions, including the baseline calibration)
+
+The local column retains the original results: the starter/v2 scores came from official-scoring checks; later ensemble values are FP32 averages, distinct from their deployed INT8 public scores.
 
 | date | submission | local valid | leaderboard | rank | share of the valid gain kept |
 |---|---|---|---|---|---|
@@ -721,9 +788,9 @@ Summary tables from the earlier "Days 5-7" and "Oct 21 to Nov 2" sections, uncha
 | Oct 19 | `submission_v7_int8.zip` | 0.6824 | 0.65367 | 470 of 5,051 | about 60% |
 | Oct 19 | `submission_ens_v7v9_int8.zip` | 0.6850 | 0.65542 | 372 of 5,057 | about 67% |
 | Oct 20 | `submission_ens_v18cv19a_int8.zip` | 0.6867 | **0.65684** | **302 of 5,111** | about 79% |
-| by Nov 2 (date approximate) | `submission_ens_v18cv24a_int8.zip` | 0.6869 | 0.65596 | not recorded | below v18c+v19a despite +0.0002 on valid |
+| Oct 23 (user-confirmed Nov 16) | `submission_ens_v18cv24a_int8.zip` | 0.6869 | 0.65596 | not recorded | below v18c+v19a despite +0.0002 on valid |
 
-Our rank at 0.65684 has since drifted as other teams improved: 398 of 5,660 (Nov 2), 419 of 5,711 (Nov 5).
+Observed public rank at 0.65684: 398/5,660 (Nov 2), 419/5,711 (Nov 5), and **495/5,840 (Nov 16, user-confirmed)**. These observations are not the pending private placement.
 
 **Leaderboard snapshots**
 
@@ -742,22 +809,19 @@ Our rank at 0.65684 has since drifted as other teams improved: 398 of 5,660 (Nov
 
 ---
 
-## 4. Results so far
+## 4. Final selections and results
 
-| submission | local (valid) | public leaderboard |
-|---|---|---|
-| starter `baseline_submission.zip` (calibration) | 0.617052 | 0.59353 |
-| `submission_v2_int8_std.zip` (single GRU-128, int8, 177 KB) | 0.679703 (full valid, official scorer) | 0.65200 |
-| `submission_ens_v4v5_int8.zip` (two GRU-128, int8, 341 KB) | 0.6822 masked (fp32 average on full valid) | 0.65315 |
-| `submission_v7_int8.zip` (single GRU-128, mask-weighted loss) | 0.6824 | 0.65367 |
-| `submission_ens_v7v9_int8.zip` (two mask-weighted GRU-128) | 0.6850 (fp32 average, full valid) | 0.65542 |
-| `submission_ens_v18cv19a_int8.zip` (two GRU-128 with weight decay 0.05 / 0.1, data seeds 0 and 1, 339 KB) | 0.6867 (fp32 average, full valid) | **0.65684** (current best and fallback final) |
-| `submission_ens_v18cv24a_int8.zip` (two GRU-128 with weight decay 0.05, data seeds 0 and 2, 335 KB; scored by Nov 2, date approximate) | 0.6869 (fp32 average, full valid) | 0.65596 |
+All three rows below are **selected, submitted and locked**. Public scores are for deployed **INT8** submissions; local scores are **FP32** raw-prediction averages on all 1,873 validation sequences, not full-validation INT8 measurements. Earlier submissions remain in the historical table above.
 
-- Our rank: about 532 after the first submission (Oct 17), 543-547 during Oct 18, 486 of 5,016 after the first ensemble, 372 of 5,057 after the mask-weighted pair (Oct 19), **302 of 5,111** after the weight-decay pair (Oct 20). With no better submission since, the same score has slipped to 398 of 5,660 (Nov 2) and 419 of 5,711 (Nov 5).
-- Why the leaderboard (0.65) is below local (0.68): the baseline drops by almost the same amount (0.617 to 0.5935), so the test set is simply harder than valid for everyone. It is not caused by checkpoint selection or by tuning to the valid mask (section 3, steps 1, 3 and 4).
-- Gains on valid shrink on the test set: the first ensemble gave +0.0025 locally and +0.00115 on the leaderboard (46%); v7+v9 kept about 67%; the weight-decay pair kept 79% (+0.0018 locally, +0.00142 on the leaderboard). v18c+v24a was +0.0002 ahead of v18c+v19a on valid and 0.00088 behind on the leaderboard, so valid differences of that size do not carry over.
-- Only submitted and scored solutions can be picked as the final choice (section 1), so each real candidate is submitted once, after the team is told.
+| Selected submission | Submitted | FP32 scored-row validation WP | INT8 public score |
+|---|---|---:|---:|
+| `submission_ens_v18cv19a_int8.zip` | Oct 20 | 0.6867397 | **0.65684** |
+| `submission_ens_v18cv24a_int8.zip` | **Oct 23**, user-confirmed Nov 16 | 0.6869 | **0.65596** |
+| `submission_ens_v7v9_int8.zip` | Oct 19 | 0.6850 | **0.65542** |
+
+The user confirmed selection on **November 16, approximately 17:21 IST / 11:51 UTC**, with the page message “All good! Your choice has been submitted.” The final score will be the **highest private score among these three**. Private results are pending. Latest observed **public rank is 495/5,840 on November 16**, not a final placement. The best submission's recorded platform runtime/memory is **36m07s / 624 MB**, as provided in the user's confirmation.
+
+The unchanged-baseline calibration also showed a local-to-public drop (0.617052 to 0.59353), supporting a difference between validation and test periods. It does not rule out model-selection effects. Small validation gains did not reliably transfer: v18c+v24a led v18c+v19a locally by about 0.0002 but scored 0.00088 lower publicly. Later v33, triple and residual-head checks did not justify replacing the incumbent. The repeatedly reused 469-sequence subset is diagnostic, not independent confirmation.
 
 ---
 
@@ -777,9 +841,9 @@ Our rank at 0.65684 has since drifted as other teams improved: 398 of 5,660 (Nov
 - Ensembling two models in one ONNX graph did not cut the per-row cost (114 vs 2 x 60 us). Do not assume a shared graph is cheaper; time it.
 - Running two training jobs at once (even on two GPUs) made both about 5 times slower, because the data sits on one hard disk. I first said both would finish by 10 PM, which was wrong. Later I again asked for an ensemble check to run next to a training job and it cost about 10 minutes. Anything that reads the data waits until training is done.
 - The training scripts forced GPU 0 whatever `CUDA_VISIBLE_DEVICES` said, which is why one teammate's "GPU 1" run slowed ours down. Check `nvidia-smi` memory on the GPU you meant after launching.
-- I first thought three models might fit in 60 minutes (it is about 48-51), then judged it too risky; a timeout scores zero. Keep two models unless a platform-measured time is under about 45 minutes.
+- Early three-model runtime projections were about 48–51 minutes and were judged too risky; they were estimates, not platform measurements. The November 14 mixed-triple export was substantially slower in a matched callback benchmark. The selected incumbent later had a user-confirmed platform runtime of 36m07s.
 - Gains selected as "best of N" are slightly optimistic (the weight-decay pair was the best of 10). The leaderboard check showed 79% carried over, but plan for 50-70%.
-- A single run on 469 sequences cannot resolve differences below about 0.002; v16a looked behind v7 on the 469 and ahead on the other 1,404 sequences, and only the replicate (v17c) settled it. Replicate before believing a gain below 0.003.
+- The 469-sequence comparisons were sensitive to sequence composition: v16a looked behind v7 on that subset and ahead on the other 1,404 sequences. Later paired sequence bootstraps quantify sampling uncertainty, but neither those intervals nor the reused subset account for training randomness or prior selection.
 - A sanity check that fails is information. `ensemble_check9.py` stopped on a reference-value mismatch; the models were fine and the check's lookup was wrong. Fix the check, never raise its tolerance.
 - Shell detail: in a waiter script `echo "$(date) ... $?"` resets `$?` before it is printed; store `$?` in a variable first.
 - `ps -eo args` truncates long commands and `pgrep -f` also matches the wrapper shell; find the python PID once with `ps -ww -eo pid,comm,args` and wait with `kill -0 PID`.
@@ -789,30 +853,14 @@ Our rank at 0.65684 has since drifted as other teams improved: 398 of 5,660 (Nov
 
 ---
 
-## 6. Next steps
+## 6. Closeout tasks
 
-Done (kept for the record):
-- Up to Oct 21: the mask is predictable and mask weighting works; weight decay 0.05-0.1 is the one knob that helped; the rules and prize pages were read.
-- Oct 21 to Nov 5: the specialist, a third data seed, distillation, input ablations and extra inputs, a sharper mask model, three-model ensembles (ensemble_check11) and a unit embedding (v30) did not help (section 3, daily log Oct 21 to Nov 5). The search is closed.
-- Nov 5, closed: unit embedding (v30, -0.0004 to -0.0010), unit-normalised outputs (v31, -0.0035 to -0.0984) and a Pearson loss (v32, -0.0004 to -0.0015) did not help. Modelling is stopped.
-- v18c+v24a was submitted and scored 0.65596, so it is a scored fallback candidate.
-
-Final phase (deadline Nov 15, 11:59 PM UTC = 05:29 IST Nov 16; aim to finish everything by **Nov 14**):
-
-1. **Final candidates.**
-   - The main final choice is `submission_ens_v18cv19a_int8.zip` (leaderboard 0.65684, already scored). Already-scored fallbacks: `submission_ens_v18cv24a_int8.zip` (0.65596), `submission_ens_v7v9_int8.zip` (0.65542).
-   - Only previously submitted and scored solutions can be selected, and the number of selections is not stated. So agree on the candidate list as a team, then **submit and score every final candidate by Nov 14**, one at a time and after telling the team.
-   - A new build still needs at least +0.0015 over the pair on all valid and must not be lower on the 469.
-   - No new training runs.
-2. **Technical report (2-8 pages)**: fill in `REPORT_DRAFT.md`, with numbers taken only from `EXPERIMENTS.md` and this README.
-   - Content: data and metric, the GRU and its int8 ensemble, mask weighting, weight decay, the negative results, and the valid-to-leaderboard transfer.
-3. **Verification package** (needed within 7 days of the preliminary results if we reach the top 8):
-   - `REPRODUCE.md`, with the exact commands, seeds and expected scores for the final zip.
-   - The training and inference code at the committed versions.
-   - The determinism evidence: a re-export gives a byte-identical `model.onnx`, and v20a's raw weights match v18c's evaluations at every step.
-   - Prepare for the 30-60 minute code-review call and the license.
-4. **Back up** the checkpoints, caches needed to reproduce (`train_maskp.npy`), and submission zips of every final candidate off the university machine.
-5. Confirm the team registration (the merge deadline Nov 1 has passed) and that Mukesh and Tejas are collaborators on this repo.
+- **Complete:** research through the November 14 bounded attempt; three previously scored final submissions selected and confirmed on November 16. No further experiment, submission, re-upload or selection change is required.
+- **Pending:** private scores and final placement. Record those results when released; the observed public rank is not a final result.
+- **Draft:** [REPORT_DRAFT.md](REPORT_DRAFT.md) still contains TODOs for final selections, results and verification-package details. It has not been established as a finished technical report.
+- **Backups unconfirmed:** the inspected records do not establish off-machine backup completion. Preserve the three selected ZIPs, their checkpoints (v18c, v19a, v24a, v7 and v9), preprocessing/mask-cache provenance and source evidence; confirm any external copies separately. This is an archival status, not a requirement to rerun or re-upload competition artifacts.
+- **Conditional verification:** if requested by the organisers, use [REPRODUCE.md](REPRODUCE.md), the saved checkpoints/source versions and determinism evidence. The full raw-data pipeline and full-validation INT8 checks have limits noted in the reproduction record; do not describe unperformed checks as completed.
+- **Repository:** remains private. This closeout does not change visibility or release code publicly.
 
 ---
 
@@ -853,29 +901,26 @@ Final phase (deadline Nov 15, 11:59 PM UTC = 05:29 IST Nov 16; aim to finish eve
 | `target_structure.py` | targets are integer multiples of a per-sequence unit; autocorrelation; relation to prices |
 | `unit_analysis.py`, `unit_probe.py`, `unit_labels.py`, `unit_group_eval.py` | per-unit score breakdown, unit recognition from the first steps, unit labels, in-group scores of the generalists |
 | `unit_pred.py`, `unit_pred_results.txt` | causal unit class per sequence from the first 20 steps (out of fold on train) for `unitpred=1` (v30) |
-| `EXPERIMENTS.md` | team rules, runs table, Discord facts, open questions, lessons |
+| [EXPERIMENTS.md](EXPERIMENTS.md) | preserved experiment record, historical launch notes and November 16 closeout |
 | `REPRODUCE.md` | exact pipeline for `submission_ens_v18cv19a_int8.zip`: commands, seeds, expected outputs and run times |
-| `REPORT_DRAFT.md` | skeleton of the 2-8 page technical report |
+| [REPORT_DRAFT.md](REPORT_DRAFT.md) | technical-report draft with unresolved TODOs; not a confirmed final report |
+| [V33.md](V33.md), [V33_RUN_20261109.md](V33_RUN_20261109.md) | historical v33 preparation/launch records; completed Nov 8 UTC, outcome in the Nov 9 experiment closeout |
+| `v33_model.py`, `train_v33.py`, `check_v33.py`, `smoke_v33.py`, `eval_v33_pairs.py` | matched A/B/C implementation, checks and fixed-pair evaluation; evidence in `v33_results/` |
+| [V34_REPORT_20261109.md](V34_REPORT_20261109.md), [V34_STREAM_OPT_20261109.md](V34_STREAM_OPT_20261109.md) | TCN smoke checks and same-architecture streaming optimization; never fully trained |
+| `v34_model.py`, `train_v34.py`, `check_v34.py`, `v34_stream.py`, `bench_v34.py` | prepared causal TCN and bounded preflight/streaming checks; evidence in `v34_results/` |
+| `v34_stream_ring.py`, `profile_v34_stream.py`, `bench_v34_ring.py`, `confirm_v34_ring.py` | circular-cache execution prototype, profiling and repeated matched callback measurements |
+| [FINAL_ENSEMBLE_AUDIT_20261114.md](FINAL_ENSEMBLE_AUDIT_20261114.md) | final fixed-checkpoint comparisons, bootstrap intervals and exported-triple runtime assessment |
+| `final_ensemble_audit.py`, `audit_mixed_stream.py`, `bench_final_audit.py`, `audit_stream_memory.py` | audit-only evaluation/export/timing tools; evidence in `audit_results/`; triples not submitted |
+| [BOUNDED_RESIDUAL_FINAL_20261114.md](BOUNDED_RESIDUAL_FINAL_20261114.md) | completed 32.1-minute frozen-v18c residual-head attempt; incumbent retained |
+| `bounded_residual_20261114.py`, `bounded_residual_export_check.py` | bounded head-only training/evaluation and prepared-but-unused exporter; evidence in `bounded_results/`; no candidate ZIP |
 
-## 8. How to reproduce (outline)
+## 8. Reproduction summary and verification limits
 
-The exact, checked pipeline for the current best submission is in `REPRODUCE.md`; this section is the short outline.
+[REPRODUCE.md](REPRODUCE.md) is the ordered reconstruction record for `submission_ens_v18cv19a_int8.zip`, with actual commands, filenames, seeds, expected outputs and verification limits. Its October 31 statements about what had not been rerun are historical; the later v33 control subsequently reproduced v18c's saved weights bitwise. No reproduction command was executed for this documentation closeout.
 
-```
-source ~/work/venv/bin/activate
-python make_cache.py                       # builds ~/work/cache (about 80 GB)
-CUDA_VISIBLE_DEVICES=0 python train_v1.py --hidden 128 --name train_v2
-CUDA_VISIBLE_DEVICES=1 nohup python train_v1.py --hidden 128 --epochs 5 --n-val 1873 --n-holdout 300 --eval-every 12800 --seed 1 --name train_v5_h128_e5_seed1_fullval > ~/work/train_v5.nohup.out 2>&1 &
-python export_v2.py --ckpt ~/work/checkpoints/train_v2_best.pt --out submission_v2_int8_std --int8 --cell matmul --zip <path>.zip
-python run_full_valid.py <path>.zip /tmp/valid_check      # full validation with the official scorer
-```
+1. `make_cache.py` builds the supplied parquet cache. `mask_gru.py` creates the training mask-probability cache, using the recorded preprocessing-statistics provenance. Neither step should be silently substituted with a different cache or statistics sample.
+2. The submitted members came from `train_multi.py`: **v18c, data/init seed 0, wd 0.05**, and **v19a, data/init seed 1, wd 0.1**. Both use GRU-128 × 2, no dropout, five epochs / 64,500 updates, batch 16, chunk 1,000, lr 0.001 cosine, alpha 0.5, n-val 1,873, n-holdout 300 and n-stats 64. Initialization seeds belong in `--models`; the script has `--data-seed`, **not `--seed`**. Use the recorded per-run commands in REPRODUCE.md rather than an illustrative mixed-seed command.
+3. The incumbent export uses `/home/jovyan/work/checkpoints/train_v18c_wd05_nodrop_final.pt` and `/home/jovyan/work/checkpoints/train_v19a_wd10_ds1_final.pt`. `export_ens.py` accepts `--ckpt-a`, `--ckpt-b`, `--out`, optional `--zip` and `--fp32`. **INT8 is its default; it does not accept `--int8` or `--cell matmul`.** Those options belong to other exporters. Standardization remains explicit in the graph, and `solution_ens.py` carries state between rows and resets it between sequences.
+4. `check_ens.py`, `bench_ens.py` and `run_full_valid.py` have distinct correctness, callback-timing and official-scoring roles. Their recorded checks must not be conflated: **0.6867397 is the full-validation FP32 pair score**, while **0.65684 is the submitted INT8 public score**. REPRODUCE.md records the smaller INT8 comparison, byte-identical re-exported model/solution/statistics files and the full-pipeline/full-INT8 checks that were not performed. Its approximately 5.5-hour reconstruction estimate is not evidence of a fresh end-to-end rerun.
 
-The v4, v5 and v6 recipe is hidden 128, 5 epochs, `--n-val 1873 --n-holdout 300 --eval-every 12800`, seeds 0, 1 and 2. The ensemble zip is built with `export_ens.py` from the v4 and v5 checkpoints. Check each script's `--help` for exact options.
-
-**Current best recipe (weight decay, Oct 20).** Hidden 128, 2 layers, no dropout, 5 epochs, mask weighting alpha 0.5 (needs `~/work/cache/train_maskp.npy` from `mask_gru.py`), AdamW lr 1e-3 with weight decay 0.05 (or 0.1), global seed and data seed 0 for one member and 1 for the other. The two members of the submitted pair came from `train_multi.py` runs (v18c with weight decay 0.05 and data seed 0, v19a with weight decay 0.1 and data seed 1). The pair is exported with `export_ens.py` and `solution_ens.py` from the two `_final.pt` checkpoints, always with `--int8 --cell matmul`.
-
-```
-CUDA_VISIBLE_DEVICES=0 nohup python train_multi.py --hidden 128 --epochs 5 --n-val 1873 --n-holdout 300 --eval-every 12800 --seed 0 --data-seed 0 --alpha 0.5 --mask-p ~/work/cache/train_maskp.npy --models "name1:0:gru::0:wd=0.05,name2:0:gru::0:wd=0.1" > ~/work/train_vN.nohup.out 2>&1 &
-```
-
-The exact `--models` spec syntax is in the docstring of `train_multi.py`. Run one training job at a time, and do not read the data (ensemble checks, benchmarks on valid) while it runs.
+Earlier unsupported or obsolete example commands have been removed. Preserve source versions, checkpoint hashes and existing artifacts; competition selection is complete and no rerun or re-upload is required.
