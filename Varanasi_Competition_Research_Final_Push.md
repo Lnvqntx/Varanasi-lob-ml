@@ -1,6 +1,8 @@
 # Varanasi final-push research: published financial ML competition solutions
 Research date: 15 November 2026, India time. Prepared for Team Varanasi.
 
+> Historical research memo, November 15, 2026. The proposed experiments are now closed. Final result: **412th, private score 0.66582**. See [README.md](README.md) for the completed project.
+
 ## Decision
 Do not launch v34 merely because its streaming implementation now runs faster. It is still untrained; its benchmark establishes feasibility, not predictive value. First audit the best already-trained blends. If there is time for one new learning experiment, test a small nonlinear residual prediction head on the existing GRU, preserving its inputs and recurrent backbone.
 
@@ -9,7 +11,7 @@ This is a broad search across roughly thirty competition/event families, not a c
 ## Our actual constraints and evidence
 The supplied rules require causal, deterministic processing of every row, including warm-up rows, with state reset between sequences. Only supplied train/valid data may train the model. Test scoring mask is hidden. No GPU at inference: one CPU core, 16 GB, 60 minutes. There are 39.4 million test rows.
 
-The current v18c + v19a pair has full-validation scored WP about 0.6867397 and public score 0.65684. The supplied latest leaderboard screenshot shows 482/5,832, not a final rank. Its recorded platform runtime is 36m07s.
+The current v18c + v19a pair has full-validation scored WP about 0.6867397 and public score 0.65684. The public leaderboard snapshot at the time was 482/5,832; it was not a final rank. Its recorded platform runtime is 36m07s.
 
 Validation scores cannot be compared numerically with other competitions' scores. Even within our project, the v18c + v24a pair improved validation slightly but scored worse publicly. The 469-sequence diagnostic subset has already been used for selection, so it is not an untouched confirmation set.
 
@@ -148,7 +150,7 @@ Reproduce the incumbent and the two predetermined LSTM triples in one shared ful
 
 Verify the exact incumbent ZIP and inference settings, then export only the strongest eligible blend. Quantization may change the ranking; compare actual exported predictions, not only PyTorch outputs. Benchmark full callbacks with resets, warm-up, startup, memory and enough consecutive sequences for stable timing. Three models close to 60 minutes need further optimization or exclusion.
 
-The previous +0.0015 improvement gate can be revisited for the user's smaller rank-improvement goal, but +0.0006 remains weak evidence. If a modest exploratory submission is built, say so honestly; retain the established incumbent and check the final-selection rules.
+The previous +0.0015 improvement gate can be revisited for the narrower rank-improvement objective, but +0.0006 remains weak evidence. If a modest exploratory submission is built, say so honestly; retain the established incumbent and check the final-selection rules.
 
 ### 2. One new learning hypothesis: nonlinear residual GRU readout
 Keep the original 168-feature preprocessing and existing GRU backbone. Start from a saved training checkpoint and add a small nonlinear residual readout to the hidden state:
@@ -160,7 +162,7 @@ This is an inference from the Jane Street precedent, not a published winner reci
 Avoid storing every training hidden state in RAM. Read actual container memory limits: host free memory is not the container allowance. Shared-disk throughput has already limited parallel jobs in this project.
 
 ### 3. v34 remains a secondary option
-A trained temporal CNN might add diversity, but implementation readiness and short-stream speed do not establish predictive performance or platform runtime. Full training plus validation/export could consume hours. Do not launch it automatically while the user is trying to finish quickly.
+A trained temporal CNN might add diversity, but implementation readiness and short-stream speed do not establish predictive performance or platform runtime. Full training plus validation/export could consume hours. It was outside the remaining time budget for the final experiment.
 
 ### Deprioritized ideas
 - More seeds/models without demonstrating useful marginal improvement per CPU cost.
@@ -172,4 +174,5 @@ A trained temporal CNN might add diversity, but implementation readiness and sho
 
 ## Operational finish
 Research does not guarantee a climb. Preserve the known working submission, record hashes/settings for any candidate, confirm the official deadline and final-selection mechanism, then select using both evidence and runtime feasibility. No training, repository edits, submission or push was performed during this research task.
+
 

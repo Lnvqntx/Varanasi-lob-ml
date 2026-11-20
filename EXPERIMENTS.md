@@ -1,6 +1,6 @@
 # Experiment log (Team Varanasi)
 
-One row per run. Add yours before you launch. Never reuse a `--name`.
+Historical experiment ledger. Final competition result: **412th, private score 0.66582**. The November 20 entry records the completed outcome. Launch instructions below are retained as historical operating procedures.
 
 ## Team rules (shared `user_9` login, shared GPUs)
 
@@ -169,7 +169,7 @@ All scores are weighted Pearson on valid `is_scored` rows. v1 and v2 picked thei
 
 ## v33 preparation — November 8, 2026
 
-Research resumed at the user's request. Implemented an isolated shared-stream control (A), learned 168→32 tanh projection (B), and projection plus inclusive EMA deviations at half-lives 8/64/512 (C), each with GRU-128 × 2 and v18c settings. **Full training has not been launched.** Existing trainers/artifacts are unchanged. Causal/state/warm-up/gradient checks pass; real-cache A smoke exactly matches train_v2m weights, stats and evaluation. Deterministic synthetic shared A/B/C compute: 11.36 updates/s per model; real-cache smoke peak 1.60 GiB. Pinned-core explicit-cell ONNX int8 A/B/C: 82.1/82.5/95.1 µs/row; existing deployed pair 118.4 µs/row. B/C timing/quantization use untrained weights and do not establish accuracy. See [V33.md](V33.md) for the architecture, evidence, limitations, exact prepared training command and fresh-output safeguards; machine-readable measurements in `v33_results/`.
+Research resumed with a controlled multiscale-context experiment. Implemented an isolated shared-stream control (A), learned 168→32 tanh projection (B), and projection plus inclusive EMA deviations at half-lives 8/64/512 (C), each with GRU-128 × 2 and v18c settings. **Full training has not been launched.** Existing trainers/artifacts are unchanged. Causal/state/warm-up/gradient checks pass; real-cache A smoke exactly matches train_v2m weights, stats and evaluation. Deterministic synthetic shared A/B/C compute: 11.36 updates/s per model; real-cache smoke peak 1.60 GiB. Pinned-core explicit-cell ONNX int8 A/B/C: 82.1/82.5/95.1 µs/row; existing deployed pair 118.4 µs/row. B/C timing/quantization use untrained weights and do not establish accuracy. See [V33.md](V33.md) for the architecture, evidence, limitations, exact prepared training command and fresh-output safeguards; machine-readable measurements in `v33_results/`.
 
 ## v33 full A/B/C comparison — requested run date 20261109
 
@@ -222,7 +222,7 @@ Completed 2026-11-14T20:24:23.784714+00:00, 32.1 min from original19:52:18 start
 
 ## November 16, 2026: competition closeout
 
-**Research and final selection are complete; private results are pending.** The user confirmed via November 16 screenshots and organiser email that the following previously scored submissions were selected and locked at approximately **17:21 IST / 11:51 UTC on Monday, November 16, 2026**. The page displayed: “All good! Your choice has been submitted.” These platform facts were supplied by the user; no independent website access is claimed.
+**Research and final selection completed November 16.** The following previously scored submissions were selected and locked at approximately **17:21 IST / 11:51 UTC on Monday, November 16, 2026**. Private evaluation was outstanding at that date; the November 20 entry records the final result.
 
 | Confirmed final selection | Public score |
 |---|---:|
@@ -230,7 +230,7 @@ Completed 2026-11-14T20:24:23.784714+00:00, 32.1 min from original19:52:18 start
 | `submission_ens_v18cv24a_int8.zip` | **0.65596** |
 | `submission_ens_v7v9_int8.zip` | **0.65542** |
 
-The final score will be the highest private score among these three. Latest observed **public rank: 495/5,840 on November 16**; this is not the final placement. The incumbent's recorded platform runtime/memory is **36m07s / 624 MB**. The user also confirmed that v18c+v24a was submitted **October 23**, correcting the earlier approximate date.
+The final score is the highest private score among the three selections. The public-rank snapshot on November 16 was **495/5,840**. The incumbent’s public-platform runtime and memory were **36m07s / 624 MB**. The v18c+v24a submission date was **October 23**, correcting an earlier approximate date.
 
 New submissions closed **November 15 at 23:59 UTC / November 16 at 05:29 IST**. The organiser's email gives the separate selection cutoff as **November 17 at 12:00 UTC / 17:30 IST**, states that submitted selections cannot be changed, and specifies automatic selection of the best three public-scoring submissions if no selection is made. Our selection is already confirmed; no re-upload or further experiment is required. Organisers state that submissions which avoided a public-dataset timeout will also avoid a final-dataset timeout.
 
@@ -238,4 +238,11 @@ New submissions closed **November 15 at 23:59 UTC / November 16 at 05:29 IST**. 
 
 Earlier “running” and “not launched” statements above are historical preparation/launch records. v33 actually completed **November 8 at 20:54:51 UTC**, despite the requested `20261109` run label; its completed outcome is in the November 9 closeout above. Later work did not launch full v34 training. The [README dated history](README.md#nov-8-sun) links the source reports and completed outcomes.
 
-Off-machine artifact backups remain **unconfirmed** in the inspected records. `REPORT_DRAFT.md` still contains TODOs and remains a draft. Preserve all selected ZIPs, checkpoints and audit evidence; the repository remains private. No public release or change of visibility is implied. No further competition experiment or upload is required; private results and any organiser-requested verification remain pending.
+A **308 MB project-artifact backup** was downloaded on November 16 and passed SHA-256 and archive-readability checks. It contains the repository, checkpoints and selected submission directories; it excludes raw data, generated caches, installed environments and loose files outside those directories. The completed [technical report](REPORT.md) supersedes the earlier draft.
+
+
+## November 20, 2026: final competition result
+
+Team Varanasi finished **412th** with a **final private score of 0.66582**, improving **83 places** from public rank 495. The [final leaderboard](https://wundernn.io/connectome/finals) identifies the best submission as `1VH*`, matching the selected **v18c + v19a** INT8 ensemble (`1VH23TAR`, `submission_ens_v18cv19a_int8.zip`). Its public score was **0.65684**. The private scores of the other two selections are not recorded.
+
+The website's 5,841 counter belongs to the public standings and is not used as a verified finalist count. Final rank, private score, public score and local FP32 validation remain distinct. Research and competition submission work are complete; no additional training or inference run was performed for this documentation update.

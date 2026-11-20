@@ -5,7 +5,7 @@
 Research and inference code for **Team Varanasi** in the **Wunder Fund Alfa Connectome ML Competition**. The task is to predict two future price-movement indicators from anonymized order book and trade data, under a single-CPU streaming inference budget.
 
 **Team:** Lnvqntx · Mukesh · TejasCS  
-**Last updated:** November 16, 2026
+**Last updated:** November 20, 2026
 
 [Results](#4-final-selections-and-results) · [Research history](#3-everything-we-did-in-order) · [Reproduction](REPRODUCE.md) · [Experiments](EXPERIMENTS.md) · [Code guide](#7-repo-contents)
 
@@ -15,14 +15,18 @@ Research and inference code for **Team Varanasi** in the **Wunder Fund Alfa Conn
 
 | Item | Recorded outcome |
 |---|---|
+| **Final placement** | **412th** |
+| **Final private score** | **0.66582** |
 | Best public score | **0.65684**, deployed INT8 ensemble: **v18c + v19a** |
 | Public rank snapshot | **495 / 5,840**, observed November 16; **not the final placement** |
 | Local validation | **0.6867397** weighted Pearson for the FP32 pair on 1,873 sequences |
 | Platform inference | **36m07s · 624 MB** for the best public submission |
 | Final selections | **Three submissions confirmed and locked** on November 16 |
-| Private evaluation | **Results pending** |
+| Competition status | **Complete — final results recorded November 20, 2026** |
 
-Public scores, rank, selection confirmation and platform resource measurements are recorded from the team's November 16 screenshots and organiser email. The local FP32 validation score and deployed INT8 public score use different evaluation data and must not be treated as interchangeable.
+Team Varanasi finished **412th** with a **final private score of 0.66582**, an improvement of **83 places** from public rank 495. The final leaderboard identifies the best submission as `1VH*`, matching the selected v18c + v19a entry (`1VH23TAR`). [Official final leaderboard](https://wundernn.io/connectome/finals).
+
+Local FP32 validation, deployed INT8 public evaluation and private evaluation use different datasets or execution paths. Their scores are reported separately.
 
 ### Approach
 
@@ -39,7 +43,7 @@ Public scores, rank, selection confirmation and platform resource measurements a
 | v18c + v24a | 0.65596 | Confirmed |
 | v7 + v9 | 0.65542 | Confirmed |
 
-The platform will use the **highest private score** among these three. Selection was confirmed at approximately **17:21 IST / 11:51 UTC on November 16** and cannot be changed. Exact artifact names and evaluation caveats appear in [Final selections and results](#4-final-selections-and-results).
+The final score is the **highest private score** among these three. Selection was confirmed at approximately **17:21 IST / 11:51 UTC on November 16** and cannot be changed. Exact artifact names and evaluation caveats appear in [Final selections and results](#4-final-selections-and-results).
 
 ### Start here
 
@@ -50,9 +54,9 @@ The platform will use the **highest private score** among these three. Selection
 | [Final ensemble audit](FINAL_ENSEMBLE_AUDIT_20261114.md) | Fixed-checkpoint comparisons, uncertainty estimates and exported-triple runtime measurements |
 | [Bounded residual experiment](BOUNDED_RESIDUAL_FINAL_20261114.md) | Final 32.1-minute attempt; neither residual pair improved the incumbent |
 | [v34 streaming prototype](V34_STREAM_OPT_20261109.md) | Circular-cache optimization; smoke benchmarks only, no full training or platform certification |
-| [Technical report draft](REPORT_DRAFT.md) | Work in progress with unresolved TODOs; not a final report |
+| [Technical report](REPORT.md) | Method, final results, deployment measurements and reproducibility limits |
 
-**Access and artifacts.** The repository remains private pending confirmation that public code sharing is permitted. Competition data, model weights, caches and submission archives are excluded from Git. Reproduction requires the relevant external artifacts; this repository is not a standalone submission package. Required files were downloaded off-machine according to the maintainer's November 16 confirmation; backup contents and integrity were not independently checked.
+**Artifacts and reproducibility.** Competition data, model weights, generated caches and submission archives are not included in Git. Reproduction requires those external artifacts. A 308 MB project archive containing source code, checkpoints and selected submission directories was downloaded and passed SHA-256 and archive-readability checks on November 16. Raw data, generated caches and installed environments were outside that backup.
 
 <details>
 <summary><strong>Contents</strong></summary>
@@ -104,7 +108,7 @@ Wunder Fund (a high-frequency trading firm) gives anonymized real market data fr
 
 ### Final selection and deadlines (confirmed November 16)
 
-The following platform facts come from the **user's November 16 screenshots and organiser-email confirmation**, not an independent website check:
+The competition deadlines and selection policy were:
 
 - New submissions closed **Sunday, November 15, 2026 at 23:59 UTC / Monday, November 16 at 05:29 IST**.
 - The organiser's email gives a separate final-selection deadline: **Tuesday, November 17 at 12:00 UTC / 17:30 IST**. Submitted selections cannot be changed.
@@ -501,7 +505,7 @@ No logged work (no commits, runs or result files dated this day).
 4. **v18c+v24a int8 built on request** (zip 12:35, 335,138 bytes), even though ensemble_check10's rule was not met.
    - int8 loss +0.000033 on the first 100 valid sequences.
    - 112.9 us/row against 114.5 for v18c+v19a in the same bench, projected 39.2 min.
-   - Submitted **October 23**, as confirmed by the user on November 16; public score **0.65596**. This corrects the earlier approximate submission date.
+   - Submitted **October 23**, as recorded in the submission history; public score **0.65596**. This corrects the earlier approximate submission date.
 5. **v26**, K = 6 (12:55-14:17).
    - Training chunk 2,000: 0.6829 / 0.5115 (-0.0028).
    - Training chunk 4,000: 0.6819 / 0.5091 (-0.0038).
@@ -579,7 +583,7 @@ No logged work. The team-merge deadline (23:59 UTC) passed.
 1. **v29 finals logged**, and the README summary for Oct 21 to Nov 2 written (commit 14:34).
 2. **Leaderboard: rank 398 of 5,660** at 0.65684, down from 302 of 5,111 on Oct 20; we had no better submission since, and other teams moved past us.
 3. **Discord remarks**: what was said that day is not recorded in our files. The Oct 31 facts stand.
-4. **v18c+v24a public score recorded: 0.65596**. The score was known by this Nov 2 entry; the user later confirmed **October 23** as the submission date on November 16.
+4. **v18c+v24a public score recorded: 0.65596**. The score was known by this Nov 2 entry; the submission history records **October 23** as the submission date.
    - That is -0.00088 below v18c+v19a and +0.00054 above v7+v9, so it is our second-best scored submission and a fallback candidate.
    - On valid it had been +0.0002 / +0.0001 ahead of v18c+v19a. Valid differences that small say nothing about the leaderboard.
    - 7 leaderboard submissions used so far.
@@ -719,9 +723,13 @@ C improved on B by **0.0013130**, but remained **0.0011078 below A**. [V33_RUN_2
 
 ### Nov 16 (Mon)
 
-**Competition work closed; final selection confirmed.** According to the user's November 16 screenshots and organiser-email confirmation, the three submissions in [Final selections and results](#4-final-selections-and-results) were selected and locked at approximately **17:21 IST / 11:51 UTC**. The page displayed: **“All good! Your choice has been submitted.”** The final score will be the highest private score among them. Latest observed public rank: **495/5,840**; private results and final placement are pending.
+**Final selection completed.** The three submissions in [Final selections and results](#4-final-selections-and-results) were selected and locked at approximately **17:21 IST / 11:51 UTC** on November 16. Public rank at the time was **495/5,840**. Private evaluation was outstanding at this stage; the final result is recorded in the November 20 entry below.
 
-The incumbent's recorded platform runtime/memory is **36m07s / 624 MB**, distinct from local estimates. The separate submission and selection deadlines, automatic-selection rule and organiser timeout assurance are recorded in [Final selection and deadlines](#final-selection-and-deadlines-confirmed-november-16). Our selection is complete and cannot be changed; no re-upload or further experiment is required. The repository remains private; no public code release is recorded.
+The incumbent's recorded platform runtime/memory is **36m07s / 624 MB**, distinct from local estimates. The separate submission and selection deadlines, automatic-selection rule and organiser timeout assurance are recorded in [Final selection and deadlines](#final-selection-and-deadlines-confirmed-november-16). Our selection is complete and cannot be changed; no re-upload or further experiment is required. The repository was private during this stage of the competition.
+
+### Nov 20 (Fri)
+
+**Final result: 412th, private score 0.66582.** The final leaderboard records an 83-place improvement from public rank 495. Its best-submission identifier, `1VH*`, matches the selected v18c + v19a submission (`1VH23TAR`). The other selected submissions’ private scores are not recorded here. Competition modelling and selection are complete.
 
 ### Reference tables
 
@@ -845,9 +853,9 @@ The local column retains the original results: the starter/v2 scores came from o
 | Oct 19 | `submission_v7_int8.zip` | 0.6824 | 0.65367 | 470 of 5,051 | about 60% |
 | Oct 19 | `submission_ens_v7v9_int8.zip` | 0.6850 | 0.65542 | 372 of 5,057 | about 67% |
 | Oct 20 | `submission_ens_v18cv19a_int8.zip` | 0.6867 | **0.65684** | **302 of 5,111** | about 79% |
-| Oct 23 (user-confirmed Nov 16) | `submission_ens_v18cv24a_int8.zip` | 0.6869 | 0.65596 | not recorded | below v18c+v19a despite +0.0002 on valid |
+| Oct 23 | `submission_ens_v18cv24a_int8.zip` | 0.6869 | 0.65596 | not recorded | below v18c+v19a despite +0.0002 on valid |
 
-Observed public rank at 0.65684: 398/5,660 (Nov 2), 419/5,711 (Nov 5), and **495/5,840 (Nov 16, user-confirmed)**. These observations are not the pending private placement.
+Observed public rank at 0.65684: 398/5,660 (Nov 2), 419/5,711 (Nov 5), and **495/5,840 (Nov 16)**. These are historical public standings; the final private placement is **412th**.
 
 **Leaderboard snapshots**
 
@@ -875,10 +883,10 @@ All three rows below are **selected, submitted and locked**. Public scores are f
 | Selected submission | Submitted | FP32 scored-row validation WP | INT8 public score |
 |---|---|---:|---:|
 | `submission_ens_v18cv19a_int8.zip` | Oct 20 | 0.6867397 | **0.65684** |
-| `submission_ens_v18cv24a_int8.zip` | **Oct 23**, user-confirmed Nov 16 | 0.6869 | **0.65596** |
+| `submission_ens_v18cv24a_int8.zip` | Oct 23 | 0.6869 | **0.65596** |
 | `submission_ens_v7v9_int8.zip` | Oct 19 | 0.6850 | **0.65542** |
 
-The user confirmed selection on **November 16, approximately 17:21 IST / 11:51 UTC**, with the page message “All good! Your choice has been submitted.” The final score will be the **highest private score among these three**. Private results are pending. Latest observed **public rank is 495/5,840 on November 16**, not a final placement. The best submission's recorded platform runtime/memory is **36m07s / 624 MB**, as provided in the user's confirmation.
+Final selection was confirmed on **November 16 at approximately 17:21 IST / 11:51 UTC**. The final result, recorded November 20, is **412th with a private score of 0.66582**. The best submission was v18c + v19a, matching the final leaderboard’s `1VH*` identifier to submission `1VH23TAR`. Its public evaluation completed in **36m07s with 624 MB memory**; these are public-platform measurements, not separately measured private-evaluation timings. Individual private scores for the other two selections are not available in this record.
 
 The unchanged-baseline calibration also showed a local-to-public drop (0.617052 to 0.59353), supporting a difference between validation and test periods. It does not rule out model-selection effects. Small validation gains did not reliably transfer: v18c+v24a led v18c+v19a locally by about 0.0002 but scored 0.00088 lower publicly. Later v33, triple and residual-head checks did not justify replacing the incumbent. The repeatedly reused 469-sequence subset is diagnostic, not independent confirmation.
 
@@ -892,7 +900,7 @@ The unchanged-baseline calibration also showed a local-to-public drop (0.617052 
 - Our first model (hidden 256) was too slow for the CPU limit; we caught this by timing before spending a submission.
 - First int8 attempt lost score; fixed by keeping standardization explicit.
 - Repo was initially public; fixed to private.
-- On Oct 17 I explained the 0.652 vs 0.680 gap as checkpoint-selection optimism. The baseline calibration showed it is mostly the test set being harder for everyone. Measure with a calibration submission before explaining a gap.
+- On Oct 17 I explained the 0.652 vs 0.680 gap as checkpoint-selection optimism. The baseline also scored lower publicly, supporting a difference between evaluation periods without excluding model-selection effects. Measure with a calibration submission before explaining a gap.
 - We treated single-run differences of 0.001 as meaningful before measuring seed noise (about 0.0013). Always check seed noise before reading anything into small differences.
 - The v3 run (8 epochs) overfit: best at step 64,000 (0.6783), final 0.6704. We select the best checkpoint, not the last.
 - Instructions I gave for the seed runs guessed the checkpoint file names (`..._fullval_best.pt`); the actual file for v5 was `train_v5_h128_e5_seed1_best.pt`, and Claude Code had to find it. Check `ls ~/work/checkpoints` before naming files.
@@ -900,7 +908,7 @@ The unchanged-baseline calibration also showed a local-to-public drop (0.617052 
 - Ensembling two models in one ONNX graph did not cut the per-row cost (114 vs 2 x 60 us). Do not assume a shared graph is cheaper; time it.
 - Running two training jobs at once (even on two GPUs) made both about 5 times slower, because the data sits on one hard disk. I first said both would finish by 10 PM, which was wrong. Later I again asked for an ensemble check to run next to a training job and it cost about 10 minutes. Anything that reads the data waits until training is done.
 - The training scripts forced GPU 0 whatever `CUDA_VISIBLE_DEVICES` said, which is why one teammate's "GPU 1" run slowed ours down. Check `nvidia-smi` memory on the GPU you meant after launching.
-- Early three-model runtime projections were about 48–51 minutes and were judged too risky; they were estimates, not platform measurements. The November 14 mixed-triple export was substantially slower in a matched callback benchmark. The selected incumbent later had a user-confirmed platform runtime of 36m07s.
+- Early three-model runtime projections were about 48–51 minutes and were judged too risky; they were estimates, not platform measurements. The November 14 mixed-triple export was substantially slower in a matched callback benchmark. The selected incumbent later had a recorded platform runtime of 36m07s.
 - Gains selected as "best of N" are slightly optimistic (the weight-decay pair was the best of 10). The leaderboard check showed 79% carried over, but plan for 50-70%.
 - The 469-sequence comparisons were sensitive to sequence composition: v16a looked behind v7 on that subset and ahead on the other 1,404 sequences. Later paired sequence bootstraps quantify sampling uncertainty, but neither those intervals nor the reused subset account for training randomness or prior selection.
 - A sanity check that fails is information. `ensemble_check9.py` stopped on a reference-value mismatch; the models were fine and the check's lookup was wrong. Fix the check, never raise its tolerance.
@@ -914,12 +922,10 @@ The unchanged-baseline calibration also showed a local-to-public drop (0.617052 
 
 ## 6. Closeout tasks
 
-- **Complete:** research through the November 14 bounded attempt; three previously scored final submissions selected and confirmed on November 16. No further experiment, submission, re-upload or selection change is required.
-- **Pending:** private scores and final placement. Record those results when released; the observed public rank is not a final result.
-- **Draft:** [REPORT_DRAFT.md](REPORT_DRAFT.md) still contains TODOs for final selections, results and verification-package details. It has not been established as a finished technical report.
-- **Backups reported complete:** the maintainer confirmed on November 16 that the required files had been downloaded off-machine. This is a user-reported status; the external copies and their integrity were not independently checked. The archival set should preserve the selected ZIPs, their checkpoints, preprocessing/mask-cache provenance and source evidence.
-- **Conditional verification:** if requested by the organisers, use [REPRODUCE.md](REPRODUCE.md), the saved checkpoints/source versions and determinism evidence. The full raw-data pipeline and full-validation INT8 checks have limits noted in the reproduction record; do not describe unperformed checks as completed.
-- **Repository:** remains private. This closeout does not change visibility or release code publicly.
+- **Competition complete:** final rank **412th**, private score **0.66582**; all three final selections were confirmed on November 16.
+- **Documentation complete:** the [technical report](REPORT.md), dated research history and experiment ledger record the final result and the unsuccessful final experiments.
+- **Artifact backup verified:** the 308 MB archive passed SHA-256 and archive-readability checks after download. It includes the repository, checkpoints and selected submission directories, but not raw data, generated caches, installed environments or every loose workstation file.
+- **Reproducibility limits retained:** [REPRODUCE.md](REPRODUCE.md) records the reconstruction procedure and the checks actually performed. A fresh end-to-end reconstruction and full-validation INT8 check of the final pair are not claimed.
 
 ---
 
@@ -962,7 +968,7 @@ The unchanged-baseline calibration also showed a local-to-public drop (0.617052 
 | `unit_pred.py`, `unit_pred_results.txt` | causal unit class per sequence from the first 20 steps (out of fold on train) for `unitpred=1` (v30) |
 | [EXPERIMENTS.md](EXPERIMENTS.md) | preserved experiment record, historical launch notes and November 16 closeout |
 | `REPRODUCE.md` | exact pipeline for `submission_ens_v18cv19a_int8.zip`: commands, seeds, expected outputs and run times |
-| [REPORT_DRAFT.md](REPORT_DRAFT.md) | technical-report draft with unresolved TODOs; not a confirmed final report |
+| [REPORT.md](REPORT.md) | completed technical report, final results and reproducibility limits |
 | [V33.md](V33.md), [V33_RUN_20261109.md](V33_RUN_20261109.md) | historical v33 preparation/launch records; completed Nov 8 UTC, outcome in the Nov 9 experiment closeout |
 | `v33_model.py`, `train_v33.py`, `check_v33.py`, `smoke_v33.py`, `eval_v33_pairs.py` | matched A/B/C implementation, checks and fixed-pair evaluation; evidence in `v33_results/` |
 | [V34_REPORT_20261109.md](V34_REPORT_20261109.md), [V34_STREAM_OPT_20261109.md](V34_STREAM_OPT_20261109.md) | TCN smoke checks and same-architecture streaming optimization; never fully trained |
@@ -983,3 +989,4 @@ The unchanged-baseline calibration also showed a local-to-public drop (0.617052 
 4. `check_ens.py`, `bench_ens.py` and `run_full_valid.py` have distinct correctness, callback-timing and official-scoring roles. Their recorded checks must not be conflated: **0.6867397 is the full-validation FP32 pair score**, while **0.65684 is the submitted INT8 public score**. REPRODUCE.md records the smaller INT8 comparison, byte-identical re-exported model/solution/statistics files and the full-pipeline/full-INT8 checks that were not performed. Its approximately 5.5-hour reconstruction estimate is not evidence of a fresh end-to-end rerun.
 
 Earlier unsupported or obsolete example commands have been removed. Preserve source versions, checkpoint hashes and existing artifacts; competition selection is complete and no rerun or re-upload is required.
+
